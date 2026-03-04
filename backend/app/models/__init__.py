@@ -1,10 +1,18 @@
 from __future__ import annotations
+
 from app.models.models import (
     AS2Profile,
     APICallLog,
     APIClient,
+    APIMessage,
+    APIMessageMapping,
+    APIMessageSample,
+    APIMessageSchema,
     APIQuota,
     Certificate,
+    ConnectionTestRun,
+    ConnectionTestStep,
+    DocumentTestReport,
     EmailVerificationToken,
     IntegrationClient,
     Notification,
@@ -12,11 +20,12 @@ from app.models.models import (
     Partner,
     Session,
     Subsidiary,
-    TransactionLink,
     TpSpecification,
     Transaction,
+    TransactionLink,
     UnisSpecification,
     User,
+    ValidatorReport,
 )
 
 __all__ = [
@@ -27,6 +36,10 @@ __all__ = [
     'Subsidiary',
     'AS2Profile',
     'APIClient',
+    'APIMessage',
+    'APIMessageSchema',
+    'APIMessageSample',
+    'APIMessageMapping',
     'OAuthToken',
     'APICallLog',
     'APIQuota',
@@ -37,4 +50,8 @@ __all__ = [
     'UnisSpecification',
     'TpSpecification',
     'IntegrationClient',
+    'ConnectionTestRun',
+    'ConnectionTestStep',
+    'DocumentTestReport',
+    'ValidatorReport',
 ]

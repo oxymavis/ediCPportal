@@ -3,6 +3,7 @@ from app.models import AS2Profile, Certificate, Notification, Partner, Subsidiar
 
 
 def partner_to_api(p: Partner) -> dict:
+    progress = max(0, min(100, int((p.current_step_id or 1) / 5 * 100)))
     return {
         'id': p.id,
         'name': p.name,
@@ -14,6 +15,15 @@ def partner_to_api(p: Partner) -> dict:
             'name': p.contact_name,
             'email': p.contact_email,
             'phone': p.contact_phone,
+        },
+        'integrationType': p.integration_type or 'edi',
+        'communicationChannel': p.communication_channel,
+        'apiConfig': p.api_config,
+        'lifecycle': {
+            'currentStepId': p.current_step_id or 1,
+            'onboardingStartDate': p.onboarding_start_date,
+            'stepCompletionDates': p.step_completion_dates or {},
+            'progressPercent': progress,
         },
         'subsidiaries': [
             {
@@ -87,6 +97,8 @@ def transaction_to_api(t: Transaction) -> dict:
         'controlNumber': t.control_number,
         'senderId': t.sender_id,
         'receiverId': t.receiver_id,
+        'integrationType': t.integration_type or ('api' if (t.channel or '').startswith('REST') else 'edi'),
+        'channel': t.channel,
         'sourceSystem': t.source_system,
         'externalEventId': t.external_event_id,
         'idempotencyKey': t.idempotency_key,

@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.http import RateLimitMiddleware, RequestGuardMiddleware, SecurityHeadersMiddleware, TraceAndAuditMiddleware
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
-from app.routers import auth, certificates, health, integrations, meta, notifications, oauth, partners, specifications, transactions
+from app.routers import api_docs, auth, certificates, connection_testing, health, integrations, meta, notifications, oauth, partners, specifications, transactions
 from app.seed import seed_if_empty
 
 
@@ -53,6 +53,37 @@ async def lifespan(_app: FastAPI):
                     conn.execute(text("UPDATE transactions SET business_refs='{}' WHERE business_refs IS NULL"))
                     conn.execute(text("UPDATE transactions SET control_refs='{}' WHERE control_refs IS NULL"))
                     conn.execute(text("UPDATE transactions SET occurred_at=created_at WHERE occurred_at IS NULL"))
+            if 'integration_type' not in columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE transactions ADD COLUMN integration_type VARCHAR(16)"))
+            if 'channel' not in columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE transactions ADD COLUMN channel VARCHAR(20)"))
+        if 'users' in inspector.get_table_names():
+            columns = {c['name'] for c in inspector.get_columns('users')}
+            if 'password_algo' not in columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN password_algo VARCHAR(16) DEFAULT 'pbkdf2'"))
+                    conn.execute(text("UPDATE users SET password_algo='pbkdf2' WHERE password_algo IS NULL"))
+        if 'partners' in inspector.get_table_names():
+            columns = {c['name'] for c in inspector.get_columns('partners')}
+            alters = []
+            if 'integration_type' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN integration_type VARCHAR(16) DEFAULT 'edi'")
+            if 'communication_channel' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN communication_channel VARCHAR(20)")
+            if 'current_step_id' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN current_step_id INTEGER DEFAULT 1")
+            if 'onboarding_start_date' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN onboarding_start_date VARCHAR(10)")
+            if 'step_completion_dates' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN step_completion_dates JSON DEFAULT '{}'")
+            if 'api_config' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN api_config JSON")
+            if alters:
+                with engine.begin() as conn:
+                    for stmt in alters:
+                        conn.execute(text(stmt))
     if settings.auto_seed:
         db = SessionLocal()
         try:
@@ -104,3 +135,5 @@ app.include_router(transactions.router)
 app.include_router(notifications.router)
 app.include_router(specifications.router)
 app.include_router(integrations.router)
+app.include_router(api_docs.router)
+app.include_router(connection_testing.router)

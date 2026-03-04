@@ -1,5 +1,8 @@
 from __future__ import annotations
+import json
+import time
 from fastapi import APIRouter, Body, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -44,6 +47,25 @@ def mark_all_read(
     q.update({'read': True})
     db.commit()
     return ok({'updated': count})
+
+
+@router.get('/stream')
+def stream_notifications(environment: str | None = None, db: Session = Depends(get_db)):
+    def event_gen():
+        last_id = 0
+        for _ in range(20):
+            q = db.query(Notification).filter(Notification.id > last_id)
+            if environment:
+                q = q.filter(Notification.environment == environment)
+            rows = q.order_by(Notification.id.asc()).all()
+            for n in rows:
+                last_id = max(last_id, n.id)
+                payload = notification_to_api(n)
+                yield f"event: notification\ndata: {json.dumps(payload)}\n\n"
+            time.sleep(1)
+        yield "event: end\ndata: {}\n\n"
+
+    return StreamingResponse(event_gen(), media_type='text/event-stream')
 
 
 @router.get('/{notif_id}')

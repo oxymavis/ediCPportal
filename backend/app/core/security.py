@@ -9,7 +9,7 @@ from passlib.context import CryptContext
 from app.core.config import settings
 
 pwd_context = CryptContext(
-    schemes=['pbkdf2_sha256'],
+    schemes=['bcrypt', 'pbkdf2_sha256'],
     deprecated='auto',
 )
 
@@ -20,6 +20,15 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
     return pwd_context.verify(plain_password, password_hash)
+
+
+def verify_and_upgrade_password(plain_password: str, password_hash: str) -> tuple[bool, str | None]:
+    valid = pwd_context.verify(plain_password, password_hash)
+    if not valid:
+        return False, None
+    if pwd_context.needs_update(password_hash):
+        return True, hash_password(plain_password)
+    return True, None
 
 
 def create_access_token(subject: str, remember_me: bool = False) -> tuple[str, datetime]:

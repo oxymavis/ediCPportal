@@ -1,8 +1,11 @@
 from __future__ import annotations
 from datetime import datetime
+import csv
+import io
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -26,6 +29,8 @@ def list_transactions(
     search: str | None = None,
     relatedDocType: str | None = None,
     relatedRef: str | None = None,
+    integrationType: str | None = None,
+    channel: str | None = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(Transaction)
@@ -39,6 +44,10 @@ def list_transactions(
         q = q.filter(Transaction.direction == direction)
     if partner and partner != 'all':
         q = q.filter(Transaction.partner == partner)
+    if integrationType and integrationType != 'all':
+        q = q.filter(Transaction.integration_type == integrationType)
+    if channel and channel != 'all':
+        q = q.filter(Transaction.channel == channel)
     rows = q.all()
 
     if dateFrom:
@@ -62,20 +71,14 @@ def list_transactions(
     return ok([transaction_to_api(r) for r in rows])
 
 
-@router.get('/{trx_id}')
-def get_transaction(trx_id: str, db: Session = Depends(get_db)):
-    t = db.query(Transaction).filter(Transaction.id == trx_id).first()
-    if not t:
-        return fail('Transaction not found', 'TRX_NOT_FOUND')
-    return ok(transaction_to_api(t))
-
-
 @router.post('')
 async def create_transaction(
     file: UploadFile | None = File(default=None),
     type: str = Form(default='850'),
     partner: str = Form(default='Unknown'),
     environment: str = Form(default='production'),
+    integrationType: str = Form(default='edi'),
+    channel: str = Form(default='AS2'),
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
 ):
@@ -101,6 +104,8 @@ async def create_transaction(
         control_number=uuid4().hex[:10].upper(),
         sender_id='1234567890123',
         receiver_id='9876543210987',
+        integration_type=integrationType,
+        channel=channel,
         source_system='manual',
         external_event_id=None,
         idempotency_key=None,
@@ -116,6 +121,42 @@ async def create_transaction(
     db.commit()
     db.refresh(trx)
     return ok(transaction_to_api(trx))
+
+
+@router.get('/export')
+def export_transactions(
+    format: str = 'csv',
+    environment: str | None = None,
+    db: Session = Depends(get_db),
+):
+    rows = db.query(Transaction)
+    if environment:
+        rows = rows.filter(Transaction.environment == environment)
+    data = rows.order_by(Transaction.date.desc(), Transaction.time.desc()).all()
+    headers = [
+        'id', 'docType', 'typeName', 'partner', 'status', 'direction', 'environment',
+        'integrationType', 'channel', 'date', 'time', 'controlNumber',
+    ]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    for r in data:
+        writer.writerow([
+            r.id, r.doc_type or r.type, r.type_name, r.partner, r.status, r.direction, r.environment,
+            r.integration_type or '', r.channel or '', r.date, r.time, r.control_number,
+        ])
+    filename = 'transactions.csv' if format == 'csv' else 'transactions.xlsx'
+    media_type = 'text/csv' if format == 'csv' else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    return StreamingResponse(iter([output.getvalue()]), media_type=media_type, headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+
+@router.get('/{trx_id}')
+def get_transaction(trx_id: str, db: Session = Depends(get_db)):
+    t = db.query(Transaction).filter(Transaction.id == trx_id).first()
+    if not t:
+        return fail('Transaction not found', 'TRX_NOT_FOUND')
+    return ok(transaction_to_api(t))
 
 
 @router.get('/{trx_id}/related')

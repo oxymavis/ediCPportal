@@ -15,6 +15,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
+    password_algo: Mapped[str] = mapped_column(String(16), default='pbkdf2')
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -50,6 +51,12 @@ class Partner(Base):
     contact_name: Mapped[str] = mapped_column(String(120))
     contact_email: Mapped[str] = mapped_column(String(255))
     contact_phone: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    integration_type: Mapped[str] = mapped_column(String(16), default='edi', index=True)
+    communication_channel: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    current_step_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
+    onboarding_start_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    step_completion_dates: Mapped[dict] = mapped_column(JSON, default=dict)
+    api_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     environment: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -131,6 +138,8 @@ class Transaction(Base):
     control_number: Mapped[str] = mapped_column(String(50))
     sender_id: Mapped[str] = mapped_column(String(50))
     receiver_id: Mapped[str] = mapped_column(String(50))
+    integration_type: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, index=True)
+    channel: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
     source_system: Mapped[str] = mapped_column(String(20), index=True, default='manual')
     external_event_id: Mapped[Optional[str]] = mapped_column(String(120), index=True, nullable=True)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(120), unique=True, index=True, nullable=True)
@@ -264,3 +273,99 @@ class APIQuota(Base):
     period_key: Mapped[str] = mapped_column(String(20), index=True)  # YYYY-MM-DD or YYYY-MM
     count: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class APIMessage(Base):
+    __tablename__ = 'api_messages'
+
+    code: Mapped[str] = mapped_column(String(20), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(80), index=True)
+    x12_equivalent: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    version: Mapped[str] = mapped_column(String(30), default='v1')
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class APIMessageSchema(Base):
+    __tablename__ = 'api_message_schemas'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_code: Mapped[str] = mapped_column(ForeignKey('api_messages.code', ondelete='CASCADE'), index=True)
+    version: Mapped[str] = mapped_column(String(30), default='v1')
+    schema: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class APIMessageSample(Base):
+    __tablename__ = 'api_message_samples'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_code: Mapped[str] = mapped_column(ForeignKey('api_messages.code', ondelete='CASCADE'), index=True)
+    sample_type: Mapped[str] = mapped_column(String(16), index=True)  # request|response
+    content: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class APIMessageMapping(Base):
+    __tablename__ = 'api_message_mappings'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_code: Mapped[str] = mapped_column(ForeignKey('api_messages.code', ondelete='CASCADE'), index=True)
+    json_field: Mapped[str] = mapped_column(String(255))
+    x12_segment: Mapped[str] = mapped_column(String(50))
+    x12_element: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ConnectionTestRun(Base):
+    __tablename__ = 'connection_test_runs'
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    partner_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    test_type: Mapped[str] = mapped_column(String(16), index=True)  # as2|api
+    environment: Mapped[str] = mapped_column(String(20), index=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)  # passed|failed|partial
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    trace_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+
+class ConnectionTestStep(Base):
+    __tablename__ = 'connection_test_steps'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey('connection_test_runs.id', ondelete='CASCADE'), index=True)
+    step_no: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(16))
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    detail: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DocumentTestReport(Base):
+    __tablename__ = 'document_test_reports'
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    partner_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    environment: Mapped[str] = mapped_column(String(20), index=True)
+    message_type: Mapped[str] = mapped_column(String(20), index=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)  # passed|failed
+    errors: Mapped[list] = mapped_column(JSON, default=list)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ValidatorReport(Base):
+    __tablename__ = 'validator_reports'
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    format: Mapped[str] = mapped_column(String(16), index=True)  # x12|json|xml
+    valid: Mapped[bool] = mapped_column(Boolean, default=False)
+    errors: Mapped[list] = mapped_column(JSON, default=list)
+    warnings: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -23,6 +23,8 @@ router = APIRouter(
 
 def _event_to_transaction(event: IntegrationEvent) -> Transaction:
     control = event.controlRefs
+    integration_type = event.rawPayload.get('integrationType') or ('edi' if event.sourceSystem == 'edi' else 'api')
+    channel = event.rawPayload.get('channel') or ('AS2' if integration_type == 'edi' else 'REST_API')
     return Transaction(
         id=f'TRX-{event.docType}-{uuid4().hex[:10]}',
         type=event.docType,
@@ -38,6 +40,8 @@ def _event_to_transaction(event: IntegrationEvent) -> Transaction:
         control_number=control.isaControlNo or uuid4().hex[:10].upper(),
         sender_id=event.rawPayload.get('senderId', 'external'),
         receiver_id=event.rawPayload.get('receiverId', 'external'),
+        integration_type=integration_type,
+        channel=channel,
         source_system=event.sourceSystem,
         external_event_id=event.externalEventId,
         idempotency_key=event.idempotencyKey,

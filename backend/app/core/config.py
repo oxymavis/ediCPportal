@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     api_max_request_size_bytes: int = 5 * 1024 * 1024
     api_ip_allowlist: str = ''
     platform_version: str = '1.0.0'
+    feature_connection_test_real: bool = True
+    feature_api_docs_backend: bool = True
+    feature_notif_sse: bool = True
+    sandbox_api_test_endpoint: str = 'https://httpbin.org/get'
+    production_api_test_endpoint: str = 'https://httpbin.org/get'
     rate_limit_requests: int = 120
     rate_limit_window_seconds: int = 60
     auto_create_tables: bool = True

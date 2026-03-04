@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import create_access_token, hash_password, verify_and_upgrade_password
 from app.db.session import get_db
 from app.models import EmailVerificationToken, Session as UserSession, User
 from app.schemas.auth import LoginRequest, RegisterRequest, VerifyEmailConfirmRequest, VerifyEmailRequest
@@ -77,6 +77,7 @@ def register(
         name=payload.name.strip(),
         email=email,
         password_hash=hash_password(payload.password),
+        password_algo='bcrypt',
     )
     db.add(user)
     db.commit()
@@ -122,8 +123,15 @@ def login(
 ):
     email = payload.email.strip().lower()
     user = db.query(User).filter(User.email == email).first()
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user:
         return fail('Invalid email or password', 'AUTH_INVALID_CREDENTIALS')
+    valid, upgraded_hash = verify_and_upgrade_password(payload.password, user.password_hash)
+    if not valid:
+        return fail('Invalid email or password', 'AUTH_INVALID_CREDENTIALS')
+    if upgraded_hash:
+        user.password_hash = upgraded_hash
+        user.password_algo = 'bcrypt'
+        db.flush()
 
     token, expires_at = create_access_token(user.id, payload.rememberMe)
     csrf_token = secrets.token_urlsafe(24)

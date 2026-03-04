@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password
-from app.models import APIClient, IntegrationClient, Notification, Partner, Subsidiary, UnisSpecification
+from app.models import APIClient, APIMessage, APIMessageMapping, APIMessageSample, APIMessageSchema, IntegrationClient, Notification, Partner, Subsidiary, UnisSpecification
 
 UNIS_SPECS = [
     {'code': '850', 'name': 'Purchase Order', 'description': 'Request purchase of goods or services', 'category': 'Order Management', 'version': '005010', 'last_updated': '2024-01-15'},
@@ -40,6 +40,12 @@ def seed_if_empty(db: Session):
             contact_name='EDI Team',
             contact_email='edi@walmart.com',
             contact_phone='+1-800-925-6278',
+            integration_type='edi',
+            communication_channel='AS2',
+            current_step_id=2,
+            onboarding_start_date='2024-01-01',
+            step_completion_dates={'1': '2024-01-01', '2': '2024-01-15'},
+            api_config=None,
             environment='production',
         )
         p.subsidiaries.append(
@@ -55,6 +61,25 @@ def seed_if_empty(db: Session):
             )
         )
         db.add(p)
+        ap = Partner(
+            id='tp-002',
+            name='Amazon API',
+            code='AMZN',
+            status='active',
+            industry='ecommerce',
+            website='https://amazon.com',
+            contact_name='API Team',
+            contact_email='api@amazon.com',
+            contact_phone='+1-555-0000',
+            integration_type='api',
+            communication_channel='REST_API',
+            current_step_id=3,
+            onboarding_start_date='2024-02-01',
+            step_completion_dates={'1': '2024-02-01', '2': '2024-02-05', '3': '2024-02-10'},
+            api_config={'baseUrl': 'https://api.example.com', 'authMethod': 'OAuth 2.0', 'apiKey': '***MASKED***'},
+            environment='sandbox',
+        )
+        db.add(ap)
 
     if db.query(Notification).count() == 0:
         db.add_all(
@@ -93,5 +118,18 @@ def seed_if_empty(db: Session):
                 environment='production',
             )
         )
+
+    if db.query(APIMessage).count() == 0:
+        db.add_all(
+            [
+                APIMessage(code='850', name='PurchaseOrder', category='Order Management', x12_equivalent='850', version='v1'),
+                APIMessage(code='856', name='AdvanceShipNotice', category='Shipping', x12_equivalent='856', version='v1'),
+            ]
+        )
+        db.flush()
+        db.add(APIMessageSchema(message_code='850', version='v1', schema={'type': 'object', 'required': ['orderNo']}))
+        db.add(APIMessageSample(message_code='850', sample_type='request', content={'orderNo': 'PO-1001'}))
+        db.add(APIMessageSample(message_code='850', sample_type='response', content={'accepted': True, 'id': 'PO-1001'}))
+        db.add(APIMessageMapping(message_code='850', json_field='orderNo', x12_segment='BEG', x12_element='03', notes='Purchase Order Number'))
 
     db.commit()
