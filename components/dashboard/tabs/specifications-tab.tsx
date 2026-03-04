@@ -29,7 +29,7 @@ interface TPSpecification {
   fileType: string
   fileName: string
   size: string
-  environment: string
+  environment?: string
 }
 
 export default function SpecificationsTab() {
