@@ -4,11 +4,15 @@ import json
 import socket
 import ssl
 import time
+from base64 import b64decode
 from datetime import datetime
 from uuid import uuid4
 from xml.etree import ElementTree
 
 import httpx
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -39,7 +43,7 @@ def _store_step(db: Session, run_id: str, step_no: int, name: str, status: str, 
     )
 
 
-def _as2_steps(host: str, port: int, as2_id: str) -> list[tuple[str, callable]]:
+def _as2_steps(host: str, port: int, as2_id: str, payload: dict) -> list[tuple[str, callable]]:
     def dns():
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
         return {'resolved': len(infos) > 0, 'addresses': list({x[4][0] for x in infos})[:5]}
@@ -56,16 +60,53 @@ def _as2_steps(host: str, port: int, as2_id: str) -> list[tuple[str, callable]]:
         return {'valid': bool(as2_id and len(as2_id) >= 3)}
 
     def signature_check():
-        return {'valid': True, 'mode': 'simulated-signature-verify'}
+        data = payload.get('signedPayload')
+        signature_b64 = payload.get('signatureBase64')
+        cert_pem = payload.get('signerCertPem')
+        if not data or not signature_b64 or not cert_pem:
+            return {'valid': False, 'reason': 'signedPayload/signatureBase64/signerCertPem required'}
+        cert = x509.load_pem_x509_certificate(cert_pem.encode('utf-8'))
+        public_key = cert.public_key()
+        public_key.verify(
+            b64decode(signature_b64),
+            data.encode('utf-8'),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        return {'valid': True, 'algorithm': 'RSA-SHA256'}
 
     def encryption_check():
-        return {'valid': True, 'mode': 'simulated-encryption-check'}
+        ciphertext_b64 = payload.get('encryptedBase64')
+        private_key_pem = payload.get('decryptPrivateKeyPem')
+        passphrase = payload.get('decryptPrivateKeyPassphrase')
+        if not ciphertext_b64 or not private_key_pem:
+            return {'valid': False, 'reason': 'encryptedBase64/decryptPrivateKeyPem required'}
+        private_key = serialization.load_pem_private_key(
+            private_key_pem.encode('utf-8'),
+            password=(passphrase.encode('utf-8') if passphrase else None),
+        )
+        plaintext = private_key.decrypt(
+            b64decode(ciphertext_b64),
+            padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+        )
+        return {'valid': len(plaintext) > 0, 'plaintextLength': len(plaintext)}
 
     def mdn_roundtrip():
-        return {'valid': True, 'mode': 'simulated-mdn-roundtrip'}
+        mdn_url = payload.get('mdnUrl')
+        if not mdn_url:
+            return {'valid': False, 'reason': 'mdnUrl required'}
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.post(mdn_url, headers={'content-type': 'message/disposition-notification'}, content='Disposition: automatic-action/MDN-sent-automatically; processed')
+        return {'valid': 200 <= resp.status_code < 300, 'statusCode': resp.status_code}
 
     def functional_ack():
-        return {'valid': True, 'mode': 'simulated-997-ack'}
+        ack_url = payload.get('ackUrl')
+        if not ack_url:
+            return {'valid': False, 'reason': 'ackUrl required'}
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.get(ack_url)
+        body = resp.text or ''
+        return {'valid': (200 <= resp.status_code < 300) and ('997' in body or 'ACK' in body.upper()), 'statusCode': resp.status_code}
 
     return [
         ('DNS Reachability', dns),
@@ -99,7 +140,7 @@ def run_as2_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session
 
     passed = 0
     failed = 0
-    for idx, (name, fn) in enumerate(_as2_steps(host, port, as2_id), start=1):
+    for idx, (name, fn) in enumerate(_as2_steps(host, port, as2_id, payload), start=1):
         t0 = time.perf_counter()
         try:
             evidence = fn()

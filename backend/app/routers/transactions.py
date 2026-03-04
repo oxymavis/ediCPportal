@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 import csv
 import io
+import zipfile
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -15,6 +16,90 @@ from app.services.deps import get_actor, require_csrf, require_scope
 from app.services.mappers import transaction_link_to_api, transaction_to_api
 
 router = APIRouter(prefix='/v1/transactions', tags=['transactions'], dependencies=[Depends(get_actor), Depends(require_scope('transactions'))])
+
+
+def _col_name(idx: int) -> str:
+    name = ''
+    n = idx + 1
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        name = chr(65 + rem) + name
+    return name
+
+
+def _xlsx_bytes(headers: list[str], rows: list[list[str]]) -> bytes:
+    def cell_ref(r: int, c: int) -> str:
+        return f'{_col_name(c)}{r}'
+
+    sheet_rows = []
+    all_rows = [headers] + rows
+    for r_idx, row in enumerate(all_rows, start=1):
+        cells = []
+        for c_idx, val in enumerate(row):
+            escaped = (
+                str(val)
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+            )
+            cells.append(f'<c r="{cell_ref(r_idx, c_idx)}" t="inlineStr"><is><t>{escaped}</t></is></c>')
+        sheet_rows.append(f'<row r="{r_idx}">{"".join(cells)}</row>')
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(sheet_rows)}</sheetData>'
+        '</worksheet>'
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            '[Content_Types].xml',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            '</Types>',
+        )
+        zf.writestr(
+            '_rels/.rels',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            '</Relationships>',
+        )
+        zf.writestr(
+            'xl/workbook.xml',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<sheets><sheet name="Transactions" sheetId="1" r:id="rId1"/></sheets>'
+            '</workbook>',
+        )
+        zf.writestr(
+            'xl/_rels/workbook.xml.rels',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            '</Relationships>',
+        )
+        zf.writestr(
+            'xl/styles.xml',
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>'
+            '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
+            '<borders count="1"><border/></borders>'
+            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+            '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>'
+            '</styleSheet>',
+        )
+        zf.writestr('xl/worksheets/sheet1.xml', sheet_xml)
+    return buf.getvalue()
 
 
 @router.get('')
@@ -138,17 +223,30 @@ def export_transactions(
         'integrationType', 'channel', 'date', 'time', 'controlNumber',
     ]
 
+    rows = [
+        [
+            r.id, r.doc_type or r.type, r.type_name, r.partner, r.status, r.direction, r.environment,
+            r.integration_type or '', r.channel or '', r.date, r.time, r.control_number,
+        ]
+        for r in data
+    ]
+    if format == 'xlsx':
+        body = _xlsx_bytes(headers, rows)
+        return StreamingResponse(
+            iter([body]),
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': 'attachment; filename="transactions.xlsx"'},
+        )
+
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(headers)
-    for r in data:
-        writer.writerow([
-            r.id, r.doc_type or r.type, r.type_name, r.partner, r.status, r.direction, r.environment,
-            r.integration_type or '', r.channel or '', r.date, r.time, r.control_number,
-        ])
-    filename = 'transactions.csv' if format == 'csv' else 'transactions.xlsx'
-    media_type = 'text/csv' if format == 'csv' else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    return StreamingResponse(iter([output.getvalue()]), media_type=media_type, headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+    writer.writerows(rows)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="transactions.csv"'},
+    )
 
 
 @router.get('/{trx_id}')

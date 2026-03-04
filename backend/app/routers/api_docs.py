@@ -91,6 +91,28 @@ def get_message_schema(code: str, db: Session = Depends(get_db)):
     return ok(row.schema if row else {})
 
 
+@router.put('/messages/{code}/schema')
+def upsert_message_schema(code: str, payload: dict, _csrf: None = Depends(require_csrf), db: Session = Depends(get_db)):
+    if not db.query(APIMessage).filter(APIMessage.code == code).first():
+        return fail('Message not found', 'API_DOC_NOT_FOUND')
+    version = (payload.get('version') or 'v1').strip()
+    schema = payload.get('schema')
+    if not isinstance(schema, dict):
+        return fail('schema must be a JSON object', 'API_DOC_VALIDATION')
+    row = (
+        db.query(APIMessageSchema)
+        .filter(APIMessageSchema.message_code == code, APIMessageSchema.version == version)
+        .first()
+    )
+    if row:
+        row.schema = schema
+    else:
+        row = APIMessageSchema(message_code=code, version=version, schema=schema)
+        db.add(row)
+    db.commit()
+    return ok({'upserted': True, 'messageCode': code, 'version': version})
+
+
 @router.get('/messages/{code}/mapping')
 def get_message_mapping(code: str, db: Session = Depends(get_db)):
     rows = db.query(APIMessageMapping).filter(APIMessageMapping.message_code == code).all()
@@ -107,7 +129,47 @@ def get_message_mapping(code: str, db: Session = Depends(get_db)):
     )
 
 
+@router.put('/messages/{code}/mapping')
+def replace_message_mapping(code: str, payload: dict, _csrf: None = Depends(require_csrf), db: Session = Depends(get_db)):
+    if not db.query(APIMessage).filter(APIMessage.code == code).first():
+        return fail('Message not found', 'API_DOC_NOT_FOUND')
+    mappings = payload.get('mappings')
+    if not isinstance(mappings, list):
+        return fail('mappings must be an array', 'API_DOC_VALIDATION')
+    db.query(APIMessageMapping).filter(APIMessageMapping.message_code == code).delete()
+    for m in mappings:
+        if not isinstance(m, dict) or not m.get('jsonField') or not m.get('x12Segment'):
+            return fail('Each mapping requires jsonField and x12Segment', 'API_DOC_VALIDATION')
+        db.add(
+            APIMessageMapping(
+                message_code=code,
+                json_field=m['jsonField'],
+                x12_segment=m['x12Segment'],
+                x12_element=m.get('x12Element'),
+                notes=m.get('notes'),
+            )
+        )
+    db.commit()
+    return ok({'upserted': True, 'count': len(mappings)})
+
+
 @router.get('/messages/{code}/samples')
 def get_message_samples(code: str, db: Session = Depends(get_db)):
     rows = db.query(APIMessageSample).filter(APIMessageSample.message_code == code).all()
     return ok([{'type': r.sample_type, 'content': r.content} for r in rows])
+
+
+@router.put('/messages/{code}/samples')
+def replace_message_samples(code: str, payload: dict, _csrf: None = Depends(require_csrf), db: Session = Depends(get_db)):
+    if not db.query(APIMessage).filter(APIMessage.code == code).first():
+        return fail('Message not found', 'API_DOC_NOT_FOUND')
+    samples = payload.get('samples')
+    if not isinstance(samples, list):
+        return fail('samples must be an array', 'API_DOC_VALIDATION')
+    db.query(APIMessageSample).filter(APIMessageSample.message_code == code).delete()
+    for s in samples:
+        if not isinstance(s, dict) or s.get('type') not in {'request', 'response'}:
+            return fail('Each sample requires type=request|response', 'API_DOC_VALIDATION')
+        db.add(APIMessageSample(message_code=code, sample_type=s['type'], content=s.get('content') or {}))
+    db.commit()
+    return ok({'upserted': True, 'count': len(samples)})

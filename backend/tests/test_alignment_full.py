@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import base64
 from uuid import uuid4
 from sqlalchemy.orm import Session
 from passlib.hash import pbkdf2_sha256
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.x509.oid import NameOID
+from datetime import datetime, timedelta
 
 from app.db.session import SessionLocal
 from app.models import User
@@ -70,14 +76,82 @@ def test_api_docs_crud_and_queries(client):
     assert any(x['code'] == 'POX' for x in list_res.json()['data'])
     detail = client.get('/v1/api-docs/messages/POX')
     assert detail.status_code == 200 and detail.json()['data']['name'] == 'PurchaseOrderX'
+    up_schema = client.put(
+        '/v1/api-docs/messages/POX/schema',
+        headers=headers,
+        json={'version': 'v2', 'schema': {'type': 'object', 'required': ['id']}},
+    )
+    assert up_schema.status_code == 200
+    schema = client.get('/v1/api-docs/messages/POX/schema')
+    assert schema.status_code == 200 and schema.json()['data']['required'] == ['id']
+    up_mapping = client.put(
+        '/v1/api-docs/messages/POX/mapping',
+        headers=headers,
+        json={'mappings': [{'jsonField': 'id', 'x12Segment': 'BEG', 'x12Element': '03'}]},
+    )
+    assert up_mapping.status_code == 200
+    mapping = client.get('/v1/api-docs/messages/POX/mapping')
+    assert mapping.status_code == 200 and mapping.json()['data'][0]['jsonField'] == 'id'
+    up_samples = client.put(
+        '/v1/api-docs/messages/POX/samples',
+        headers=headers,
+        json={'samples': [{'type': 'request', 'content': {'id': '1'}}, {'type': 'response', 'content': {'ok': True}}]},
+    )
+    assert up_samples.status_code == 200
+    samples = client.get('/v1/api-docs/messages/POX/samples')
+    assert samples.status_code == 200 and len(samples.json()['data']) == 2
 
 
 def test_connection_testing_and_reports(client):
     headers = _auth(client)
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key = private_key.public_key()
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, 'US'),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'Test'),
+            x509.NameAttribute(NameOID.COMMON_NAME, 'test.local'),
+        ]
+    )
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.utcnow() - timedelta(days=1))
+        .not_valid_after(datetime.utcnow() + timedelta(days=365))
+        .sign(private_key, hashes.SHA256())
+    )
+    signed_payload = 'hello-as2'
+    signature = private_key.sign(signed_payload.encode('utf-8'), padding.PKCS1v15(), hashes.SHA256())
+    encrypted = public_key.encrypt(
+        b'secret-message',
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+    )
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode('utf-8')
+    pk_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode('utf-8')
+
     as2 = client.post(
         '/v1/connection-testing/as2/run',
         headers=headers,
-        json={'environment': 'sandbox', 'host': 'localhost', 'port': 443, 'as2Id': 'TEST-AS2'},
+        json={
+            'environment': 'sandbox',
+            'host': 'localhost',
+            'port': 443,
+            'as2Id': 'TEST-AS2',
+            'signedPayload': signed_payload,
+            'signatureBase64': base64.b64encode(signature).decode('utf-8'),
+            'signerCertPem': cert_pem,
+            'encryptedBase64': base64.b64encode(encrypted).decode('utf-8'),
+            'decryptPrivateKeyPem': pk_pem,
+            'mdnUrl': 'https://httpbin.org/status/200',
+            'ackUrl': 'https://httpbin.org/anything/ACK-997',
+        },
     )
     assert as2.status_code == 200 and as2.json()['success'] is True
     run_id = as2.json()['data']['runId']
@@ -121,6 +195,10 @@ def test_transactions_export_and_filters(client):
     export = client.get('/v1/transactions/export?format=csv')
     assert export.status_code == 200
     assert 'text/csv' in export.headers.get('content-type', '')
+    xlsx = client.get('/v1/transactions/export?format=xlsx')
+    assert xlsx.status_code == 200
+    assert 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' in xlsx.headers.get('content-type', '')
+    assert xlsx.content.startswith(b'PK')
 
 
 def test_notification_sse_and_bcrypt_progressive_migration(client):
