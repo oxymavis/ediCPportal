@@ -30,7 +30,19 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ## Initialize DB
 
 ```bash
-python3 -m app.cli
+python3 -m app.cli init
+```
+
+## Verify Seed Completeness (25 tables)
+
+```bash
+python3 -m app.cli verify
+```
+
+## Init + Verify (one-shot)
+
+```bash
+python3 -m app.cli all
 ```
 
 ## Migrations
