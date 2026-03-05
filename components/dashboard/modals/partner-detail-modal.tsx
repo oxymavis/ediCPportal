@@ -695,87 +695,12 @@ export default function PartnerDetailModal({
                 </Button>
               </div>
 
-              {/* Quick Summary */}
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <Card className="p-4 border border-border">
-                  <p className="text-sm text-muted-foreground">Inbound Message Types</p>
-                  <p className="text-2xl font-bold text-cyan-600">4</p>
-                  <p className="text-xs text-muted-foreground mt-1">850, 940, 944, 210</p>
-                </Card>
-                <Card className="p-4 border border-border">
-                  <p className="text-sm text-muted-foreground">Outbound Message Types</p>
-                  <p className="text-2xl font-bold text-purple-600">5</p>
-                  <p className="text-xs text-muted-foreground mt-1">856, 810, 855, 997, 945</p>
-                </Card>
-                <Card className="p-4 border border-border">
-                  <p className="text-sm text-muted-foreground">Routing Rules</p>
-                  <p className="text-2xl font-bold text-foreground">3</p>
-                  <p className="text-xs text-muted-foreground mt-1">Active configurations</p>
-                </Card>
-              </div>
-
-              {/* Sample Routing Rules */}
-              <div className="space-y-3">
-                <Card className="p-4 border border-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-primary">856</span>
-                          <span className="text-foreground">Advance Ship Notice</span>
-                          <span className="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">Outbound</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">Route to Walmart US for all fulfilled orders</p>
-                      </div>
-                    </div>
-                    <div className="text-sm text-right">
-                      <p className="text-muted-foreground">Target:</p>
-                      <p className="font-medium text-foreground">Walmart / Walmart US</p>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="p-4 border border-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-primary">810</span>
-                          <span className="text-foreground">Invoice</span>
-                          <span className="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">Outbound</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">Return invoice to original PO sender</p>
-                      </div>
-                    </div>
-                    <div className="text-sm text-right">
-                      <p className="text-muted-foreground">Target:</p>
-                      <p className="font-medium text-foreground">Return to Inbound TP</p>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="p-4 border border-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-primary">997</span>
-                          <span className="text-foreground">Functional Ack</span>
-                          <span className="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700">Outbound</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">Send FA back to message sender</p>
-                      </div>
-                    </div>
-                    <div className="text-sm text-right">
-                      <p className="text-muted-foreground">Target:</p>
-                      <p className="font-medium text-foreground">Return to Inbound TP</p>
-                    </div>
-                  </div>
-                </Card>
-              </div>
+              <Card className="p-4 border border-dashed border-border">
+                <p className="text-sm text-muted-foreground">
+                  Routing details are loaded and edited through the configuration modal backed by
+                  <span className="font-mono"> /v1/partners/{'{partnerId}'}/subsidiaries/{'{subsidiaryId}'}/routing</span>.
+                </p>
+              </Card>
             </>
           )}
         </div>
@@ -792,6 +717,8 @@ export default function PartnerDetailModal({
       {/* Message Routing Modal */}
       {showMessageRouting && (
         <MessageRoutingModal
+          partnerId={partner.id}
+          subsidiaryId={(subsidiary ? subsidiary.id : partner.subsidiaries[0]?.id) || ""}
           partnerName={subsidiary ? subsidiary.name : partner.name}
           partnerCode={subsidiary ? subsidiary.code : partner.code}
           onClose={() => setShowMessageRouting(false)}

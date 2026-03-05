@@ -5,6 +5,15 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 
 type TabType = "raw" | "errors" | "logs"
+type TxError = {
+  code?: string
+  severity?: "error" | "warning" | string
+  segment?: string
+  position?: string
+  message?: string
+  details?: string
+}
+type TxLog = { timestamp?: string; level?: string; message?: string }
 
 export default function TransactionDetailModal({
   transaction,
@@ -22,42 +31,8 @@ export default function TransactionDetailModal({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Mock error data based on transaction status
-  const errors = transaction.status === "error" ? [
-    {
-      code: "EDI-001",
-      severity: "error",
-      segment: "ST",
-      position: "1",
-      message: "Missing required segment ST (Transaction Set Header)",
-      details: "The ST segment is required at the beginning of each transaction set. This segment was not found in the expected position."
-    },
-    {
-      code: "EDI-002",
-      severity: "error",
-      segment: "BFR",
-      position: "2",
-      message: "Invalid element value in BFR01",
-      details: "The value '999' in element BFR01 is not a valid qualifier. Expected values: 00, 01, 02, 03."
-    },
-    {
-      code: "EDI-003",
-      severity: "warning",
-      segment: "DTM",
-      position: "5",
-      message: "Date format mismatch in DTM02",
-      details: "The date '2024115' does not conform to the expected format CCYYMMDD. Missing leading zero."
-    }
-  ] : transaction.status === "processing" ? [
-    {
-      code: "EDI-W01",
-      severity: "warning",
-      segment: "N1",
-      position: "12",
-      message: "Optional segment N1 has incomplete data",
-      details: "The N1 segment is present but N103 (identification code qualifier) is missing."
-    }
-  ] : []
+  const errors: TxError[] = Array.isArray(transaction.errors) ? transaction.errors : []
+  const logs: TxLog[] = Array.isArray(transaction.logs) ? transaction.logs : []
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -248,7 +223,7 @@ export default function TransactionDetailModal({
                               ? "bg-red-100 text-red-700" 
                               : "bg-amber-100 text-amber-700"
                           }`}>
-                            {error.severity.toUpperCase()}
+                            {String(error.severity ?? "warning").toUpperCase()}
                           </span>
                           <span className="font-mono text-sm font-semibold text-foreground">
                             {error.code}
@@ -281,7 +256,7 @@ export default function TransactionDetailModal({
           {activeTab === "logs" && (
             <div className="space-y-2">
               <h3 className="font-semibold text-foreground mb-4">Processing Logs</h3>
-              {transaction.logs.map((log: any, idx: number) => (
+              {logs.map((log, idx) => (
                 <div
                   key={idx}
                   className={`p-3 rounded-lg text-xs font-mono ${
