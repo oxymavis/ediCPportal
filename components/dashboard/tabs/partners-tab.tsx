@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import PartnerDetailModal from "../modals/partner-detail-modal"
 import AddPartnerModal from "../modals/add-partner-modal"
 import IntegrationLifecyclePipeline, { buildIntegrationSteps, getProgressFromStep, getStepLabel } from "../integration-lifecycle"
+import { apiClient } from "@/lib/api-client"
 
 interface AS2Profile {
   id: string
@@ -54,148 +55,68 @@ interface TradingPartner {
   transactionCount: number
 }
 
+function apiPartnerToTradingPartner(p: any): TradingPartner {
+  const lifecycle = p.lifecycle || {}
+  const ch = p.communicationChannel
+  const channel: CommunicationChannel =
+    typeof ch === "string"
+      ? { type: ch, status: "configured", config: {} }
+      : { type: ch?.type ?? "REST_API", status: ch?.status ?? "configured", config: ch?.config ?? {} }
+  const subs: Subsidiary[] = (p.subsidiaries || []).map((s: any) => ({
+    id: s.id,
+    name: s.name,
+    code: s.code,
+    region: s.region ?? "",
+    status: s.status ?? "active",
+    as2Profiles: (s.as2Profiles || []).map((a: any) => ({
+      id: a.id,
+      name: a.name,
+      as2Id: a.as2Id,
+      url: a.as2Url ?? a.url ?? "",
+      encryptionCert: a.encryptionCert,
+      signingCert: a.signingCert,
+      status: a.status ?? "active",
+    })),
+    documentTypes: s.supportedDocTypes?.x12 ?? [],
+  }))
+  return {
+    id: p.id,
+    name: p.name,
+    code: p.code,
+    type: (p.type ?? "retailer") as TradingPartner["type"],
+    tier: (p.tier ?? "standard") as TradingPartner["tier"],
+    email: p.primaryContact?.email ?? p.email ?? "",
+    status: (p.status ?? "active") as TradingPartner["status"],
+    integrationType: (p.integrationType ?? "edi") as TradingPartner["integrationType"],
+    communicationChannel: channel,
+    currentStepId: lifecycle.currentStepId ?? 1,
+    onboardingStartDate: lifecycle.onboardingStartDate ?? "",
+    stepCompletionDates: lifecycle.stepCompletionDates ?? {},
+    subsidiaries: subs,
+    as2Profiles: subs.flatMap(s => s.as2Profiles),
+    documentTypes: subs[0]?.documentTypes ?? [],
+    lastSync: "--",
+    transactionCount: 0,
+  }
+}
+
+const INITIAL_MOCK_PARTNERS: TradingPartner[] = []
+
 export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string) => void }) {
   const [showAddModal, setShowAddModal] = useState(false)
-  const [partners, setPartners] = useState<TradingPartner[]>([
-    {
-      id: "tp-001",
-      name: "SPS Commerce",
-      code: "SPS",
-      type: "van",
-      tier: "enterprise",
-      email: "support@spscommerce.com",
-      status: "active",
-      integrationType: "edi",
-      communicationChannel: { type: "VAN", status: "active", config: { vanProvider: "SPS Commerce", networkId: "SPS-NET-001" } },
-      currentStepId: 6,
-      onboardingStartDate: "2023-03-15",
-      stepCompletionDates: { 1: "Mar 2023", 2: "Apr 2023", 3: "May 2023", 4: "Jun 2023", 5: "Jul 2023" },
-      subsidiaries: [
-        { id: "sub-001", name: "SPS Commerce - Retail", code: "SPS-RTL", region: "North America", status: "active", documentTypes: ["850", "855", "856", "810"],
-          as2Profiles: [{ id: "as2-001", name: "SPS Retail Primary", as2Id: "SPS-RETAIL-PROD", url: "https://as2.spscommerce.com/retail", encryptionCert: "sps-retail-enc.cer", signingCert: "sps-retail-sign.cer", status: "active" }]
-        },
-        { id: "sub-002", name: "SPS Commerce - Grocery", code: "SPS-GRO", region: "North America", status: "active", documentTypes: ["850", "855", "856", "810", "832"],
-          as2Profiles: [{ id: "as2-003", name: "SPS Grocery", as2Id: "SPS-GROCERY-PROD", url: "https://as2.spscommerce.com/grocery", encryptionCert: "sps-grocery-enc.cer", signingCert: "sps-grocery-sign.cer", status: "active" }]
-        },
-      ],
-      as2Profiles: [],
-      documentTypes: [],
-      lastSync: "2024-01-15 14:30:22",
-      transactionCount: 15420
-    },
-    {
-      id: "tp-002",
-      name: "Walmart",
-      code: "WMT",
-      type: "retailer",
-      tier: "enterprise",
-      email: "edi@walmart.com",
-      status: "active",
-      integrationType: "edi",
-      communicationChannel: { type: "AS2", status: "active", config: { as2Id: "WALMART-US-PROD", endpoint: "https://as2.wal-mart.com", encryption: "AES-256", mdn: "Synchronous" } },
-      currentStepId: 6,
-      onboardingStartDate: "2023-01-10",
-      stepCompletionDates: { 1: "Jan 2023", 2: "Feb 2023", 3: "Mar 2023", 4: "Apr 2023", 5: "May 2023" },
-      subsidiaries: [
-        { id: "sub-004", name: "Walmart US", code: "WMT-US", region: "United States", status: "active", documentTypes: ["850", "855", "856", "810", "940", "945"],
-          as2Profiles: [{ id: "as2-005", name: "Walmart US Primary", as2Id: "WALMART-US-PROD", url: "https://as2.wal-mart.com/us", encryptionCert: "wmt-us-enc.cer", signingCert: "wmt-us-sign.cer", status: "active" }]
-        },
-        { id: "sub-005", name: "Walmart Canada", code: "WMT-CA", region: "Canada", status: "active", documentTypes: ["850", "855", "856", "810"],
-          as2Profiles: [{ id: "as2-007", name: "Walmart Canada", as2Id: "WALMART-CA-PROD", url: "https://as2.walmart.ca", encryptionCert: "wmt-ca-enc.cer", signingCert: "wmt-ca-sign.cer", status: "active" }]
-        },
-        { id: "sub-007", name: "Sam's Club", code: "SAMS", region: "United States", status: "active", documentTypes: ["850", "855", "856", "810"],
-          as2Profiles: [{ id: "as2-009", name: "Sam's Club", as2Id: "SAMS-CLUB-PROD", url: "https://as2.samsclub.com", encryptionCert: "sams-enc.cer", signingCert: "sams-sign.cer", status: "active" }]
-        }
-      ],
-      as2Profiles: [],
-      documentTypes: [],
-      lastSync: "2024-01-15 16:45:00",
-      transactionCount: 45230
-    },
-    {
-      id: "tp-003",
-      name: "Target Corporation",
-      code: "TGT",
-      type: "retailer",
-      tier: "enterprise",
-      email: "edi@target.com",
-      status: "active",
-      integrationType: "edi",
-      communicationChannel: { type: "AS2", status: "active", config: { as2Id: "TARGET-STORES-PROD", endpoint: "https://as2.target.com", encryption: "3DES", mdn: "Asynchronous" } },
-      currentStepId: 6,
-      onboardingStartDate: "2023-05-20",
-      stepCompletionDates: { 1: "May 2023", 2: "Jun 2023", 3: "Jul 2023", 4: "Aug 2023", 5: "Sep 2023" },
-      subsidiaries: [
-        { id: "sub-008", name: "Target Stores", code: "TGT-STR", region: "United States", status: "active", documentTypes: ["850", "855", "856", "810", "846"],
-          as2Profiles: [{ id: "as2-010", name: "Target Stores AS2", as2Id: "TARGET-STORES-PROD", url: "https://as2.target.com/stores", encryptionCert: "tgt-str-enc.cer", signingCert: "tgt-str-sign.cer", status: "active" }]
-        },
-      ],
-      as2Profiles: [],
-      documentTypes: [],
-      lastSync: "2024-01-15 12:00:00",
-      transactionCount: 28500
-    },
-    {
-      id: "tp-004",
-      name: "Amazon",
-      code: "AMZN",
-      type: "platform",
-      tier: "enterprise",
-      email: "vendor-support@amazon.com",
-      status: "active",
-      integrationType: "api",
-      communicationChannel: { type: "REST_API", status: "testing", config: { baseUrl: "https://api.unis-edi.com/v1", tokenId: "tok_amzn_****3f7a", webhook: "https://vendor.amazon.com/webhooks/edi" } },
-      currentStepId: 4,
-      onboardingStartDate: "2024-08-01",
-      stepCompletionDates: { 1: "Aug 2024", 2: "Sep 2024", 3: "Oct 2024" },
-      subsidiaries: [
-        { id: "sub-010", name: "Amazon Vendor Central", code: "AMZN-VC", region: "North America", status: "active", documentTypes: ["850", "855", "856", "810"],
-          as2Profiles: []
-        },
-      ],
-      as2Profiles: [],
-      documentTypes: ["850", "855", "856", "810", "846"],
-      lastSync: "2024-01-15 18:20:00",
-      transactionCount: 0
-    },
-    {
-      id: "tp-005",
-      name: "Acme Logistics",
-      code: "ACME",
-      type: "3pl",
-      tier: "standard",
-      email: "edi@acmelogistics.com",
-      status: "active",
-      integrationType: "edi",
-      communicationChannel: { type: "AS2", status: "testing", config: { as2Id: "ACME-LOG-PROD", endpoint: "https://edi.acmelogistics.com/as2", encryption: "AES-256", mdn: "Synchronous" } },
-      currentStepId: 3,
-      onboardingStartDate: "2024-10-15",
-      stepCompletionDates: { 1: "Oct 2024", 2: "Nov 2024" },
-      subsidiaries: [],
-      as2Profiles: [{ id: "as2-016", name: "Acme Primary", as2Id: "ACME-LOG-PROD", url: "https://edi.acmelogistics.com/as2", encryptionCert: "acme-enc.cer", signingCert: "acme-sign.cer", status: "active" }],
-      documentTypes: ["940", "945", "943", "944"],
-      lastSync: "--",
-      transactionCount: 0
-    },
-    {
-      id: "tp-006",
-      name: "Costco Wholesale",
-      code: "COST",
-      type: "retailer",
-      tier: "enterprise",
-      email: "edi@costco.com",
-      status: "active",
-      integrationType: "api",
-      currentStepId: 2,
-      onboardingStartDate: "2025-12-01",
-      stepCompletionDates: { 1: "Dec 2025" },
-      subsidiaries: [],
-      as2Profiles: [],
-      documentTypes: ["850", "855", "856", "810"],
-      lastSync: "--",
-      transactionCount: 0
-    }
-  ])
+  const [partners, setPartners] = useState<TradingPartner[]>([])
+  const [partnersLoaded, setPartnersLoaded] = useState(false)
+
+  useEffect(() => {
+    apiClient.getPartners().then((r) => {
+      setPartnersLoaded(true)
+      if (r.success && Array.isArray(r.data)) {
+        setPartners(r.data.map(apiPartnerToTradingPartner))
+      } else {
+        setPartners([])
+      }
+    })
+  }, [])
 
   const [selectedPartner, setSelectedPartner] = useState<TradingPartner | null>(null)
   const [selectedSubsidiary, setSelectedSubsidiary] = useState<Subsidiary | null>(null)
@@ -518,7 +439,12 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
       {showAddModal && (
         <AddPartnerModal
           onClose={() => setShowAddModal(false)}
-          onSave={(newPartner: any) => { setPartners(prev => [...prev, newPartner]); setShowAddModal(false) }}
+          onSave={() => {
+            setShowAddModal(false)
+            apiClient.getPartners().then((r) => {
+              if (r.success && Array.isArray(r.data)) setPartners(r.data.map(apiPartnerToTradingPartner))
+            })
+          }}
         />
       )}
     </div>
