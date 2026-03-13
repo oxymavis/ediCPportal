@@ -1,0 +1,319 @@
+%% EDI Portal 后台数据库 ER 图 - 共 25 张表
+%% 生成矢量图: npx @mermaid-js/mermaid-cli mmdc -i docs/ER-diagram.mmd -o docs/ER-diagram.svg
+
+erDiagram
+    users {
+        string id PK
+        string email UK
+        string name
+        string password_hash
+        string password_algo
+        boolean email_verified
+        datetime created_at
+        datetime updated_at
+    }
+
+    sessions {
+        string id PK
+        string user_id FK
+        datetime expires_at
+        datetime created_at
+    }
+
+    email_verification_tokens {
+        string token PK
+        string user_id FK
+        datetime expires_at
+        boolean used
+    }
+
+    partners {
+        string id PK
+        string name
+        string code
+        string status
+        string industry
+        string website
+        string contact_name
+        string contact_email
+        string contact_phone
+        string integration_type
+        string communication_channel
+        int current_step_id
+        string onboarding_start_date
+        json step_completion_dates
+        json api_config
+        string environment
+        datetime created_at
+    }
+
+    subsidiaries {
+        string id PK
+        string partner_id FK
+        string name
+        string code
+        string region
+        string status
+        json supported_doc_types_x12
+        json supported_doc_types_edifact
+        json message_routing
+    }
+
+    as2_profiles {
+        string id PK
+        string subsidiary_id FK
+        string name
+        string as2_id
+        string as2_url
+        string status
+        string encryption_cert
+        string signing_cert
+        boolean mdn_required
+        boolean mdn_signed
+        string encryption_algorithm
+        string signature_algorithm
+    }
+
+    certificates {
+        int id PK
+        string name
+        string serial_number
+        string fingerprint
+        string issuer
+        string subject
+        string algorithm
+        string key_size
+        string created
+        string expires
+        string usage
+        string type
+        string status
+        string partner
+        string environment
+        string file_path
+        datetime created_at
+    }
+
+    transactions {
+        string id PK
+        string type
+        string doc_type
+        string type_name
+        string partner
+        string direction
+        string status
+        string date
+        string time
+        string size
+        int records
+        string control_number
+        string sender_id
+        string receiver_id
+        string integration_type
+        string channel
+        string source_system
+        string external_event_id
+        string idempotency_key UK
+        json business_refs
+        json control_refs
+        datetime occurred_at
+        text raw
+        json logs
+        json errors
+        string environment
+        datetime created_at
+    }
+
+    transaction_links {
+        int id PK
+        string from_transaction_id FK
+        string to_transaction_id FK
+        string relation_type
+        string match_rule
+        int confidence
+        json evidence
+        datetime created_at
+    }
+
+    notifications {
+        int id PK
+        string type
+        string title
+        text message
+        string date
+        string time
+        boolean read
+        boolean archived
+        string environment
+        json action
+        json details
+        datetime created_at
+    }
+
+    unis_specifications {
+        int id PK
+        string code UK
+        string name
+        text description
+        string category
+        string version
+        string last_updated
+    }
+
+    tp_specifications {
+        string id PK
+        string message_type
+        string message_name
+        string partner
+        string partner_code
+        string version
+        string uploaded_date
+        string uploaded_by
+        string file_type
+        string file_name
+        string size
+        string status
+        string file_path
+        datetime created_at
+    }
+
+    integration_clients {
+        string id PK
+        string name
+        string api_key_hash UK
+        string status
+        json allowed_sources
+        datetime created_at
+        datetime last_used_at
+    }
+
+    api_clients {
+        string client_id PK
+        string name
+        string secret_hash
+        string status
+        json scopes
+        string environment
+        datetime created_at
+        datetime last_used_at
+    }
+
+    oauth_tokens {
+        string jti PK
+        string client_id FK
+        datetime expires_at
+        boolean revoked
+        datetime created_at
+    }
+
+    api_call_logs {
+        int id PK
+        string trace_id
+        string client_id
+        string method
+        string path
+        int status_code
+        int latency_ms
+        datetime created_at
+    }
+
+    api_quotas {
+        int id PK
+        string client_id
+        string period
+        string period_key
+        int count
+        datetime updated_at
+    }
+
+    api_messages {
+        string code PK
+        string name
+        string category
+        string x12_equivalent
+        string version
+        datetime created_at
+        datetime updated_at
+    }
+
+    api_message_schemas {
+        int id PK
+        string message_code FK
+        string version
+        json schema
+        datetime created_at
+    }
+
+    api_message_samples {
+        int id PK
+        string message_code FK
+        string sample_type
+        json content
+        datetime created_at
+    }
+
+    api_message_mappings {
+        int id PK
+        string message_code FK
+        string json_field
+        string x12_segment
+        string x12_element
+        string notes
+        datetime created_at
+    }
+
+    connection_test_runs {
+        string id PK
+        string partner_id
+        string test_type
+        string environment
+        string status
+        json summary
+        datetime started_at
+        datetime finished_at
+        string trace_id
+    }
+
+    connection_test_steps {
+        int id PK
+        string run_id FK
+        int step_no
+        string name
+        string status
+        int latency_ms
+        string detail
+        json evidence
+        datetime created_at
+    }
+
+    document_test_reports {
+        string id PK
+        string partner_id
+        string environment
+        string message_type
+        string status
+        json errors
+        json payload
+        datetime created_at
+    }
+
+    validator_reports {
+        string id PK
+        string format
+        boolean valid
+        json errors
+        json warnings
+        datetime created_at
+    }
+
+    users ||--o{ sessions : "user_id"
+    users ||--o{ email_verification_tokens : "user_id"
+    partners ||--o{ subsidiaries : "partner_id"
+    subsidiaries ||--o{ as2_profiles : "subsidiary_id"
+    transactions ||--o{ transaction_links : "from_transaction_id"
+    transactions ||--o{ transaction_links : "to_transaction_id"
+    api_clients ||--o{ oauth_tokens : "client_id"
+    api_messages ||--o{ api_message_schemas : "message_code"
+    api_messages ||--o{ api_message_samples : "message_code"
+    api_messages ||--o{ api_message_mappings : "message_code"
+    connection_test_runs ||--o{ connection_test_steps : "run_id"

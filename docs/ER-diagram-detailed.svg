@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1630 1538" width="1630" height="1538">
+  <style>
+    .table-header { fill: #1565c0; font: bold 11px sans-serif; fill: white; }
+    .table-row { font: 10px monospace; fill: #333; }
+    .table-box { stroke: #1565c0; stroke-width: 1.5; fill: #fafbfc; rx: 4; }
+    .table-header-rect { fill: #1565c0; rx: 4; }
+    .link { stroke: #666; stroke-width: 1; fill: none; stroke-dasharray: 4,2; }
+  </style>
+  <text x="30" y="28" font-size="16" font-weight="bold" fill="#1565c0">EDI Portal 数据库详细 ER 图（25 表 · 每表字段及主外键）</text>
+  <path d="M 480 156 L 480 108.0 L 160 108.0 L 160 60" class="link"/>
+  <path d="M 800 156 L 800 108.0 L 160 108.0 L 160 60" class="link"/>
+  <path d="M 1440 246 L 1440 153.0 L 1120 153.0 L 1120 60" class="link"/>
+  <path d="M 160 838 L 160 449.0 L 1440 449.0 L 1440 60" class="link"/>
+  <path d="M 1120 766 L 1120 682.0 L 800 682.0 L 800 598" class="link"/>
+  <path d="M 1120 766 L 1120 682.0 L 800 682.0 L 800 598" class="link"/>
+  <path d="M 1440 1016 L 1440 959.0 L 1120 959.0 L 1120 902" class="link"/>
+  <path d="M 1120 1212 L 1120 1155.0 L 800 1155.0 L 800 1098" class="link"/>
+  <path d="M 1440 1212 L 1440 1155.0 L 800 1155.0 L 800 1098" class="link"/>
+  <path d="M 160 1462 L 160 1280.0 L 800 1280.0 L 800 1098" class="link"/>
+  <path d="M 800 1498 L 800 1405.0 L 480 1405.0 L 480 1312" class="link"/>
+  <rect x="30" y="60" width="260" height="168" class="table-box"/>
+  <rect x="30" y="60" width="260" height="24" class="table-header-rect"/>
+  <text x="36" y="78" class="table-header">users</text>
+  <text x="36" y="97" class="table-row">id string(64) PK</text>
+  <text x="36" y="115" class="table-row">email string(255) UK</text>
+  <text x="36" y="133" class="table-row">name string(120)</text>
+  <text x="36" y="151" class="table-row">password_hash string(255)</text>
+  <text x="36" y="169" class="table-row">password_algo string(16)</text>
+  <text x="36" y="187" class="table-row">email_verified boolean</text>
+  <text x="36" y="205" class="table-row">created_at datetime</text>
+  <text x="36" y="223" class="table-row">updated_at datetime</text>
+  <rect x="350" y="60" width="260" height="96" class="table-box"/>
+  <rect x="350" y="60" width="260" height="24" class="table-header-rect"/>
+  <text x="356" y="78" class="table-header">sessions</text>
+  <text x="356" y="97" class="table-row">id string(128) PK</text>
+  <text x="356" y="115" class="table-row">user_id string(64) FK→users.id</text>
+  <text x="356" y="133" class="table-row">expires_at datetime</text>
+  <text x="356" y="151" class="table-row">created_at datetime</text>
+  <rect x="670" y="60" width="260" height="96" class="table-box"/>
+  <rect x="670" y="60" width="260" height="24" class="table-header-rect"/>
+  <text x="676" y="78" class="table-header">email_verification_tokens</text>
+  <text x="676" y="97" class="table-row">token string(128) PK</text>
+  <text x="676" y="115" class="table-row">user_id string(64) FK→users.id</text>
+  <text x="676" y="133" class="table-row">expires_at datetime</text>
+  <text x="676" y="151" class="table-row">used boolean</text>
+  <rect x="990" y="60" width="260" height="330" class="table-box"/>
+  <rect x="990" y="60" width="260" height="24" class="table-header-rect"/>
+  <text x="996" y="78" class="table-header">partners</text>
+  <text x="996" y="97" class="table-row">id string(64) PK</text>
+  <text x="996" y="115" class="table-row">name string(120)</text>
+  <text x="996" y="133" class="table-row">code string(20)</text>
+  <text x="996" y="151" class="table-row">status string(16)</text>
+  <text x="996" y="169" class="table-row">industry string(50)</text>
+  <text x="996" y="187" class="table-row">website string(255)</text>
+  <text x="996" y="205" class="table-row">contact_name string(120)</text>
+  <text x="996" y="223" class="table-row">contact_email string(255)</text>
+  <text x="996" y="241" class="table-row">contact_phone string(30)</text>
+  <text x="996" y="259" class="table-row">integration_type string(16)</text>
+  <text x="996" y="277" class="table-row">communication_channel string(20)</text>
+  <text x="996" y="295" class="table-row">current_step_id int</text>
+  <text x="996" y="313" class="table-row">onboarding_start_date string(10)</text>
+  <text x="996" y="331" class="table-row">step_completion_dates json</text>
+  <text x="996" y="349" class="table-row">api_config json</text>
+  <text x="996" y="367" class="table-row">environment string(20)</text>
+  <text x="996" y="385" class="table-row">created_at datetime</text>
+  <rect x="1310" y="60" width="260" height="186" class="table-box"/>
+  <rect x="1310" y="60" width="260" height="24" class="table-header-rect"/>
+  <text x="1316" y="78" class="table-header">subsidiaries</text>
+  <text x="1316" y="97" class="table-row">id string(64) PK</text>
+  <text x="1316" y="115" class="table-row">partner_id string(64) FK→partners.id</text>
+  <text x="1316" y="133" class="table-row">name string(120)</text>
+  <text x="1316" y="151" class="table-row">code string(30)</text>
+  <text x="1316" y="169" class="table-row">region string(80)</text>
+  <text x="1316" y="187" class="table-row">status string(16)</text>
+  <text x="1316" y="205" class="table-row">supported_doc_types_x12 json</text>
+  <text x="1316" y="223" class="table-row">supported_doc_types_edifact json</text>
+  <text x="1316" y="241" class="table-row">message_routing json</text>
+  <rect x="30" y="598" width="260" height="240" class="table-box"/>
+  <rect x="30" y="598" width="260" height="24" class="table-header-rect"/>
+  <text x="36" y="616" class="table-header">as2_profiles</text>
+  <text x="36" y="635" class="table-row">id string(64) PK</text>
+  <text x="36" y="653" class="table-row">subsidiary_id string(64) FK→subsidiaries.id</text>
+  <text x="36" y="671" class="table-row">name string(120)</text>
+  <text x="36" y="689" class="table-row">as2_id string(128)</text>
+  <text x="36" y="707" class="table-row">as2_url string(255)</text>
+  <text x="36" y="725" class="table-row">status string(16)</text>
+  <text x="36" y="743" class="table-row">encryption_cert string(255)</text>
+  <text x="36" y="761" class="table-row">signing_cert string(255)</text>
+  <text x="36" y="779" class="table-row">mdn_required boolean</text>
+  <text x="36" y="797" class="table-row">mdn_signed boolean</text>
+  <text x="36" y="815" class="table-row">encryption_algorithm string(30)</text>
+  <text x="36" y="833" class="table-row">signature_algorithm string(30)</text>
+  <rect x="350" y="598" width="260" height="330" class="table-box"/>
+  <rect x="350" y="598" width="260" height="24" class="table-header-rect"/>
+  <text x="356" y="616" class="table-header">certificates</text>
+  <text x="356" y="635" class="table-row">id int PK</text>
+  <text x="356" y="653" class="table-row">name string(255)</text>
+  <text x="356" y="671" class="table-row">serial_number string(255)</text>
+  <text x="356" y="689" class="table-row">fingerprint string(255)</text>
+  <text x="356" y="707" class="table-row">issuer string(255)</text>
+  <text x="356" y="725" class="table-row">subject string(255)</text>
+  <text x="356" y="743" class="table-row">algorithm string(50)</text>
+  <text x="356" y="761" class="table-row">key_size string(20)</text>
+  <text x="356" y="779" class="table-row">created string(10)</text>
+  <text x="356" y="797" class="table-row">expires string(10)</text>
+  <text x="356" y="815" class="table-row">usage string(50)</text>
+  <text x="356" y="833" class="table-row">type string(50)</text>
+  <text x="356" y="851" class="table-row">status string(16)</text>
+  <text x="356" y="869" class="table-row">partner string(120)</text>
+  <text x="356" y="887" class="table-row">environment string(20)</text>
+  <text x="356" y="905" class="table-row">file_path string(500)</text>
+  <text x="356" y="923" class="table-row">created_at datetime</text>
+  <rect x="670" y="598" width="260" height="510" class="table-box"/>
+  <rect x="670" y="598" width="260" height="24" class="table-header-rect"/>
+  <text x="676" y="616" class="table-header">transactions</text>
+  <text x="676" y="635" class="table-row">id string(80) PK</text>
+  <text x="676" y="653" class="table-row">type string(20)</text>
+  <text x="676" y="671" class="table-row">doc_type string(20)</text>
+  <text x="676" y="689" class="table-row">type_name string(120)</text>
+  <text x="676" y="707" class="table-row">partner string(120)</text>
+  <text x="676" y="725" class="table-row">direction string(16)</text>
+  <text x="676" y="743" class="table-row">status string(16)</text>
+  <text x="676" y="761" class="table-row">date string(10)</text>
+  <text x="676" y="779" class="table-row">time string(8)</text>
+  <text x="676" y="797" class="table-row">size string(20)</text>
+  <text x="676" y="815" class="table-row">records int</text>
+  <text x="676" y="833" class="table-row">control_number string(50)</text>
+  <text x="676" y="851" class="table-row">sender_id string(50)</text>
+  <text x="676" y="869" class="table-row">receiver_id string(50)</text>
+  <text x="676" y="887" class="table-row">integration_type string(16)</text>
+  <text x="676" y="905" class="table-row">channel string(20)</text>
+  <text x="676" y="923" class="table-row">source_system string(20)</text>
+  <text x="676" y="941" class="table-row">external_event_id string(120)</text>
+  <text x="676" y="959" class="table-row">idempotency_key string(120) UK</text>
+  <text x="676" y="977" class="table-row">business_refs json</text>
+  <text x="676" y="995" class="table-row">control_refs json</text>
+  <text x="676" y="1013" class="table-row">occurred_at datetime</text>
+  <text x="676" y="1031" class="table-row">raw text</text>
+  <text x="676" y="1049" class="table-row">logs json</text>
+  <text x="676" y="1067" class="table-row">errors json</text>
+  <text x="676" y="1085" class="table-row">environment string(20)</text>
+  <text x="676" y="1103" class="table-row">created_at datetime</text>
+  <rect x="990" y="598" width="260" height="168" class="table-box"/>
+  <rect x="990" y="598" width="260" height="24" class="table-header-rect"/>
+  <text x="996" y="616" class="table-header">transaction_links</text>
+  <text x="996" y="635" class="table-row">id int PK</text>
+  <text x="996" y="653" class="table-row">from_transaction_id string(80) FK→transaction...</text>
+  <text x="996" y="671" class="table-row">to_transaction_id string(80) FK→transactions.id</text>
+  <text x="996" y="689" class="table-row">relation_type string(20)</text>
+  <text x="996" y="707" class="table-row">match_rule string(120)</text>
+  <text x="996" y="725" class="table-row">confidence int</text>
+  <text x="996" y="743" class="table-row">evidence json</text>
+  <text x="996" y="761" class="table-row">created_at datetime</text>
+  <rect x="1310" y="598" width="260" height="240" class="table-box"/>
+  <rect x="1310" y="598" width="260" height="24" class="table-header-rect"/>
+  <text x="1316" y="616" class="table-header">notifications</text>
+  <text x="1316" y="635" class="table-row">id int PK</text>
+  <text x="1316" y="653" class="table-row">type string(16)</text>
+  <text x="1316" y="671" class="table-row">title string(255)</text>
+  <text x="1316" y="689" class="table-row">message text</text>
+  <text x="1316" y="707" class="table-row">date string(10)</text>
+  <text x="1316" y="725" class="table-row">time string(8)</text>
+  <text x="1316" y="743" class="table-row">read boolean</text>
+  <text x="1316" y="761" class="table-row">archived boolean</text>
+  <text x="1316" y="779" class="table-row">environment string(20)</text>
+  <text x="1316" y="797" class="table-row">action json</text>
+  <text x="1316" y="815" class="table-row">details json</text>
+  <text x="1316" y="833" class="table-row">created_at datetime</text>
+  <rect x="30" y="902" width="260" height="150" class="table-box"/>
+  <rect x="30" y="902" width="260" height="24" class="table-header-rect"/>
+  <text x="36" y="920" class="table-header">unis_specifications</text>
+  <text x="36" y="939" class="table-row">id int PK</text>
+  <text x="36" y="957" class="table-row">code string(10) UK</text>
+  <text x="36" y="975" class="table-row">name string(120)</text>
+  <text x="36" y="993" class="table-row">description text</text>
+  <text x="36" y="1011" class="table-row">category string(80)</text>
+  <text x="36" y="1029" class="table-row">version string(30)</text>
+  <text x="36" y="1047" class="table-row">last_updated string(10)</text>
+  <rect x="350" y="902" width="260" height="276" class="table-box"/>
+  <rect x="350" y="902" width="260" height="24" class="table-header-rect"/>
+  <text x="356" y="920" class="table-header">tp_specifications</text>
+  <text x="356" y="939" class="table-row">id string(64) PK</text>
+  <text x="356" y="957" class="table-row">message_type string(20)</text>
+  <text x="356" y="975" class="table-row">message_name string(120)</text>
+  <text x="356" y="993" class="table-row">partner string(120)</text>
+  <text x="356" y="1011" class="table-row">partner_code string(30)</text>
+  <text x="356" y="1029" class="table-row">version string(30)</text>
+  <text x="356" y="1047" class="table-row">uploaded_date string(10)</text>
+  <text x="356" y="1065" class="table-row">uploaded_by string(255)</text>
+  <text x="356" y="1083" class="table-row">file_type string(20)</text>
+  <text x="356" y="1101" class="table-row">file_name string(255)</text>
+  <text x="356" y="1119" class="table-row">size string(20)</text>
+  <text x="356" y="1137" class="table-row">status string(16)</text>
+  <text x="356" y="1155" class="table-row">file_path string(500)</text>
+  <text x="356" y="1173" class="table-row">created_at datetime</text>
+  <rect x="670" y="902" width="260" height="150" class="table-box"/>
+  <rect x="670" y="902" width="260" height="24" class="table-header-rect"/>
+  <text x="676" y="920" class="table-header">integration_clients</text>
+  <text x="676" y="939" class="table-row">id string(64) PK</text>
+  <text x="676" y="957" class="table-row">name string(120)</text>
+  <text x="676" y="975" class="table-row">api_key_hash string(128) UK</text>
+  <text x="676" y="993" class="table-row">status string(16)</text>
+  <text x="676" y="1011" class="table-row">allowed_sources json</text>
+  <text x="676" y="1029" class="table-row">created_at datetime</text>
+  <text x="676" y="1047" class="table-row">last_used_at datetime</text>
+  <rect x="990" y="902" width="260" height="168" class="table-box"/>
+  <rect x="990" y="902" width="260" height="24" class="table-header-rect"/>
+  <text x="996" y="920" class="table-header">api_clients</text>
+  <text x="996" y="939" class="table-row">client_id string(80) PK</text>
+  <text x="996" y="957" class="table-row">name string(120)</text>
+  <text x="996" y="975" class="table-row">secret_hash string(255)</text>
+  <text x="996" y="993" class="table-row">status string(16)</text>
+  <text x="996" y="1011" class="table-row">scopes json</text>
+  <text x="996" y="1029" class="table-row">environment string(20)</text>
+  <text x="996" y="1047" class="table-row">created_at datetime</text>
+  <text x="996" y="1065" class="table-row">last_used_at datetime</text>
+  <rect x="1310" y="902" width="260" height="114" class="table-box"/>
+  <rect x="1310" y="902" width="260" height="24" class="table-header-rect"/>
+  <text x="1316" y="920" class="table-header">oauth_tokens</text>
+  <text x="1316" y="939" class="table-row">jti string(80) PK</text>
+  <text x="1316" y="957" class="table-row">client_id string(80) FK→api_clients.client_id</text>
+  <text x="1316" y="975" class="table-row">expires_at datetime</text>
+  <text x="1316" y="993" class="table-row">revoked boolean</text>
+  <text x="1316" y="1011" class="table-row">created_at datetime</text>
+  <rect x="30" y="1098" width="260" height="168" class="table-box"/>
+  <rect x="30" y="1098" width="260" height="24" class="table-header-rect"/>
+  <text x="36" y="1116" class="table-header">api_call_logs</text>
+  <text x="36" y="1135" class="table-row">id int PK</text>
+  <text x="36" y="1153" class="table-row">trace_id string(64)</text>
+  <text x="36" y="1171" class="table-row">client_id string(80)</text>
+  <text x="36" y="1189" class="table-row">method string(10)</text>
+  <text x="36" y="1207" class="table-row">path string(255)</text>
+  <text x="36" y="1225" class="table-row">status_code int</text>
+  <text x="36" y="1243" class="table-row">latency_ms int</text>
+  <text x="36" y="1261" class="table-row">created_at datetime</text>
+  <rect x="350" y="1098" width="260" height="132" class="table-box"/>
+  <rect x="350" y="1098" width="260" height="24" class="table-header-rect"/>
+  <text x="356" y="1116" class="table-header">api_quotas</text>
+  <text x="356" y="1135" class="table-row">id int PK</text>
+  <text x="356" y="1153" class="table-row">client_id string(80)</text>
+  <text x="356" y="1171" class="table-row">period string(10)</text>
+  <text x="356" y="1189" class="table-row">period_key string(20)</text>
+  <text x="356" y="1207" class="table-row">count int</text>
+  <text x="356" y="1225" class="table-row">updated_at datetime</text>
+  <rect x="670" y="1098" width="260" height="150" class="table-box"/>
+  <rect x="670" y="1098" width="260" height="24" class="table-header-rect"/>
+  <text x="676" y="1116" class="table-header">api_messages</text>
+  <text x="676" y="1135" class="table-row">code string(20) PK</text>
+  <text x="676" y="1153" class="table-row">name string(120)</text>
+  <text x="676" y="1171" class="table-row">category string(80)</text>
+  <text x="676" y="1189" class="table-row">x12_equivalent string(20)</text>
+  <text x="676" y="1207" class="table-row">version string(30)</text>
+  <text x="676" y="1225" class="table-row">created_at datetime</text>
+  <text x="676" y="1243" class="table-row">updated_at datetime</text>
+  <rect x="990" y="1098" width="260" height="114" class="table-box"/>
+  <rect x="990" y="1098" width="260" height="24" class="table-header-rect"/>
+  <text x="996" y="1116" class="table-header">api_message_schemas</text>
+  <text x="996" y="1135" class="table-row">id int PK</text>
+  <text x="996" y="1153" class="table-row">message_code string(20) FK→api_messages.code</text>
+  <text x="996" y="1171" class="table-row">version string(30)</text>
+  <text x="996" y="1189" class="table-row">schema json</text>
+  <text x="996" y="1207" class="table-row">created_at datetime</text>
+  <rect x="1310" y="1098" width="260" height="114" class="table-box"/>
+  <rect x="1310" y="1098" width="260" height="24" class="table-header-rect"/>
+  <text x="1316" y="1116" class="table-header">api_message_samples</text>
+  <text x="1316" y="1135" class="table-row">id int PK</text>
+  <text x="1316" y="1153" class="table-row">message_code string(20) FK→api_messages.code</text>
+  <text x="1316" y="1171" class="table-row">sample_type string(16)</text>
+  <text x="1316" y="1189" class="table-row">content json</text>
+  <text x="1316" y="1207" class="table-row">created_at datetime</text>
+  <rect x="30" y="1312" width="260" height="150" class="table-box"/>
+  <rect x="30" y="1312" width="260" height="24" class="table-header-rect"/>
+  <text x="36" y="1330" class="table-header">api_message_mappings</text>
+  <text x="36" y="1349" class="table-row">id int PK</text>
+  <text x="36" y="1367" class="table-row">message_code string(20) FK→api_messages.code</text>
+  <text x="36" y="1385" class="table-row">json_field string(255)</text>
+  <text x="36" y="1403" class="table-row">x12_segment string(50)</text>
+  <text x="36" y="1421" class="table-row">x12_element string(50)</text>
+  <text x="36" y="1439" class="table-row">notes string(500)</text>
+  <text x="36" y="1457" class="table-row">created_at datetime</text>
+  <rect x="350" y="1312" width="260" height="186" class="table-box"/>
+  <rect x="350" y="1312" width="260" height="24" class="table-header-rect"/>
+  <text x="356" y="1330" class="table-header">connection_test_runs</text>
+  <text x="356" y="1349" class="table-row">id string(64) PK</text>
+  <text x="356" y="1367" class="table-row">partner_id string(64)</text>
+  <text x="356" y="1385" class="table-row">test_type string(16)</text>
+  <text x="356" y="1403" class="table-row">environment string(20)</text>
+  <text x="356" y="1421" class="table-row">status string(16)</text>
+  <text x="356" y="1439" class="table-row">summary json</text>
+  <text x="356" y="1457" class="table-row">started_at datetime</text>
+  <text x="356" y="1475" class="table-row">finished_at datetime</text>
+  <text x="356" y="1493" class="table-row">trace_id string(64)</text>
+  <rect x="670" y="1312" width="260" height="186" class="table-box"/>
+  <rect x="670" y="1312" width="260" height="24" class="table-header-rect"/>
+  <text x="676" y="1330" class="table-header">connection_test_steps</text>
+  <text x="676" y="1349" class="table-row">id int PK</text>
+  <text x="676" y="1367" class="table-row">run_id string(64) FK→connection_test_runs.id</text>
+  <text x="676" y="1385" class="table-row">step_no int</text>
+  <text x="676" y="1403" class="table-row">name string(80)</text>
+  <text x="676" y="1421" class="table-row">status string(16)</text>
+  <text x="676" y="1439" class="table-row">latency_ms int</text>
+  <text x="676" y="1457" class="table-row">detail string(500)</text>
+  <text x="676" y="1475" class="table-row">evidence json</text>
+  <text x="676" y="1493" class="table-row">created_at datetime</text>
+  <rect x="990" y="1312" width="260" height="168" class="table-box"/>
+  <rect x="990" y="1312" width="260" height="24" class="table-header-rect"/>
+  <text x="996" y="1330" class="table-header">document_test_reports</text>
+  <text x="996" y="1349" class="table-row">id string(64) PK</text>
+  <text x="996" y="1367" class="table-row">partner_id string(64)</text>
+  <text x="996" y="1385" class="table-row">environment string(20)</text>
+  <text x="996" y="1403" class="table-row">message_type string(20)</text>
+  <text x="996" y="1421" class="table-row">status string(16)</text>
+  <text x="996" y="1439" class="table-row">errors json</text>
+  <text x="996" y="1457" class="table-row">payload json</text>
+  <text x="996" y="1475" class="table-row">created_at datetime</text>
+  <rect x="1310" y="1312" width="260" height="132" class="table-box"/>
+  <rect x="1310" y="1312" width="260" height="24" class="table-header-rect"/>
+  <text x="1316" y="1330" class="table-header">validator_reports</text>
+  <text x="1316" y="1349" class="table-row">id string(64) PK</text>
+  <text x="1316" y="1367" class="table-row">format string(16)</text>
+  <text x="1316" y="1385" class="table-row">valid boolean</text>
+  <text x="1316" y="1403" class="table-row">errors json</text>
+  <text x="1316" y="1421" class="table-row">warnings json</text>
+  <text x="1316" y="1439" class="table-row">created_at datetime</text>
+</svg>
