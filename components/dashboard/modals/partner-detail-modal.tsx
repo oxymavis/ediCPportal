@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import MessageRoutingModal from "./message-routing-modal"
 import PartnerSpecificationsTab from "../partner-specifications-tab"
+import { apiClient } from "@/lib/api-client"
 
 interface AS2Profile {
   id: string
@@ -42,19 +43,38 @@ interface TradingPartner {
   transactionCount: number
 }
 
+interface CertificateLite {
+  id: number
+  name: string
+  partner: string
+}
+
 export default function PartnerDetailModal({
   partner,
   subsidiary,
   onClose,
+  onSaved,
 }: {
   partner: TradingPartner
   subsidiary?: Subsidiary | null
   onClose: () => void
+  onSaved?: (partner: any) => void
 }) {
   const [activeTab, setActiveTab] = useState(subsidiary ? "subsidiary" : "overview")
   const [selectedAS2Profile, setSelectedAS2Profile] = useState<AS2Profile | null>(null)
   const [copied, setCopied] = useState(false)
   const [showMessageRouting, setShowMessageRouting] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [certs, setCerts] = useState<CertificateLite[]>([])
+  const [form, setForm] = useState({
+    name: partner.name,
+    email: partner.email,
+    status: partner.status as "active" | "inactive",
+    type: partner.type,
+    tier: partner.tier,
+  })
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -84,6 +104,55 @@ export default function PartnerDetailModal({
     return partner.as2Profiles
   }
 
+  useEffect(() => {
+    setForm({
+      name: partner.name,
+      email: partner.email,
+      status: partner.status,
+      type: partner.type,
+      tier: partner.tier,
+    })
+    setEditing(false)
+    setSaveError(null)
+  }, [partner])
+
+  useEffect(() => {
+    apiClient.getCertificates().then((res) => {
+      if (res.success && Array.isArray(res.data)) {
+        setCerts((res.data as any[]).map((x) => ({ id: x.id, name: String(x.name || ""), partner: String(x.partner || "") })))
+      }
+    })
+  }, [])
+
+  const findCertificateId = (label?: string) => {
+    if (!label) return null
+    const needle = label.trim().toLowerCase()
+    const found = certs.find((c) => {
+      const n = c.name.toLowerCase()
+      return n === needle || n.includes(needle) || needle.includes(n)
+    })
+    return found?.id ?? null
+  }
+
+  const savePartner = async () => {
+    if (subsidiary) return
+    setSaving(true)
+    setSaveError(null)
+    const res = await apiClient.updatePartner(partner.id, {
+      name: form.name.trim(),
+      status: form.status,
+      primaryContact: { name: form.name.trim(), email: form.email.trim() },
+      industry: form.type,
+    })
+    setSaving(false)
+    if (!res.success || !res.data) {
+      setSaveError(res.error || "Failed to save partner")
+      return
+    }
+    setEditing(false)
+    onSaved?.(res.data)
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <Card className="w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -109,12 +178,19 @@ export default function PartnerDetailModal({
               </p>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
-          >
-            X
-          </button>
+          <div className="flex items-center gap-2">
+            {!subsidiary && activeTab === "overview" && !editing && (
+              <Button variant="outline" size="sm" className="bg-transparent" onClick={() => setEditing(true)}>
+                Edit Partner
+              </Button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
+            >
+              X
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -220,7 +296,13 @@ export default function PartnerDetailModal({
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm text-muted-foreground mb-1">Partner Name</label>
-                      <Input type="text" value={partner.name} disabled className="bg-secondary/30" />
+                      <Input
+                        type="text"
+                        value={form.name}
+                        disabled={!editing}
+                        className={editing ? "" : "bg-secondary/30"}
+                        onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                      />
                     </div>
                     <div>
                       <label className="block text-sm text-muted-foreground mb-1">Partner Code</label>
@@ -228,16 +310,22 @@ export default function PartnerDetailModal({
                     </div>
                     <div>
                       <label className="block text-sm text-muted-foreground mb-1">Email</label>
-                      <Input type="email" value={partner.email} disabled className="bg-secondary/30" />
+                      <Input
+                        type="email"
+                        value={form.email}
+                        disabled={!editing}
+                        className={editing ? "" : "bg-secondary/30"}
+                        onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm text-muted-foreground mb-1">Type</label>
-                        <Input type="text" value={getTypeLabel(partner.type)} disabled className="bg-secondary/30" />
+                        <Input type="text" value={getTypeLabel(form.type)} disabled className="bg-secondary/30" />
                       </div>
                       <div>
                         <label className="block text-sm text-muted-foreground mb-1">Tier</label>
-                        <Input type="text" value={partner.tier} disabled className="bg-secondary/30 capitalize" />
+                        <Input type="text" value={form.tier} disabled className="bg-secondary/30 capitalize" />
                       </div>
                     </div>
                   </div>
@@ -267,15 +355,24 @@ export default function PartnerDetailModal({
                   <div className="mt-6">
                     <h4 className="font-semibold text-foreground mb-3">Status</h4>
                     <div className="flex items-center gap-3">
-                      <span className={`px-4 py-2 rounded-full text-sm font-semibold ${
-                        partner.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
-                      }`}>
-                        {partner.status === "active" ? "Active" : "Inactive"}
-                      </span>
-                      <Button variant="outline" size="sm" className="bg-transparent">
-                        {partner.status === "active" ? "Deactivate" : "Activate"}
-                      </Button>
+                      {editing ? (
+                        <select
+                          value={form.status}
+                          onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as "active" | "inactive" }))}
+                          className="px-3 py-2 rounded-md border border-input bg-background text-sm"
+                        >
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      ) : (
+                        <span className={`px-4 py-2 rounded-full text-sm font-semibold ${
+                          form.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
+                        }`}>
+                          {form.status === "active" ? "Active" : "Inactive"}
+                        </span>
+                      )}
                     </div>
+                    {saveError && <p className="text-xs text-destructive mt-2">{saveError}</p>}
                   </div>
                 </div>
               </div>
@@ -532,7 +629,19 @@ export default function PartnerDetailModal({
                             <p className="font-medium text-foreground text-sm">{profile.encryptionCert}</p>
                             <p className="text-xs text-muted-foreground">Used by: {profile.name}</p>
                           </div>
-                          <Button variant="outline" size="sm" className="bg-transparent">Download</Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-transparent"
+                            disabled={!findCertificateId(profile.encryptionCert)}
+                            onClick={async () => {
+                              const certId = findCertificateId(profile.encryptionCert)
+                              if (!certId) return
+                              await apiClient.downloadCertificate(certId)
+                            }}
+                          >
+                            Download
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -549,7 +658,19 @@ export default function PartnerDetailModal({
                             <p className="font-medium text-foreground text-sm">{profile.signingCert}</p>
                             <p className="text-xs text-muted-foreground">Used by: {profile.name}</p>
                           </div>
-                          <Button variant="outline" size="sm" className="bg-transparent">Download</Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-transparent"
+                            disabled={!findCertificateId(profile.signingCert)}
+                            onClick={async () => {
+                              const certId = findCertificateId(profile.signingCert)
+                              if (!certId) return
+                              await apiClient.downloadCertificate(certId)
+                            }}
+                          >
+                            Download
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -707,7 +828,17 @@ export default function PartnerDetailModal({
 
         {/* Footer */}
         <div className="flex gap-2 border-t border-border p-6 bg-card shrink-0">
-          <Button className="flex-1 bg-primary hover:bg-primary/90">Save Changes</Button>
+          {!subsidiary && (
+            editing ? (
+              <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={savePartner} disabled={saving}>
+                {saving ? "Saving..." : "Save Changes"}
+              </Button>
+            ) : (
+              <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={() => setEditing(true)}>
+                Edit Partner
+              </Button>
+            )
+          )}
           <Button variant="outline" className="flex-1 bg-transparent" onClick={onClose}>
             Close
           </Button>

@@ -3,14 +3,22 @@
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useState } from "react"
+import { apiClient } from "@/lib/api-client"
 
 export default function CertificateModal({ cert, onClose }: { cert: any; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(cert.fingerprint)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    await apiClient.downloadCertificate(cert.id)
+    setDownloading(false)
   }
 
   return (
@@ -86,29 +94,17 @@ export default function CertificateModal({ cert, onClose }: { cert: any; onClose
           <div>
             <h3 className="font-semibold text-foreground mb-3">Raw Certificate (PEM Format)</h3>
             <div className="p-4 bg-secondary/50 rounded-lg">
-              <code className="text-xs font-mono text-foreground break-all leading-relaxed">
-                -----BEGIN CERTIFICATE-----
-                <br />
-                MIIDXTCCAkWgAwIBAgIJAKoJZV4p8K+BMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV
-                <br />
-                BAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5ldCBX
-                <br />
-                aWRnaXRzIFB0eSBMdGQwHhcNMjQwMTE1MDAwMDAwWhcNMjUxMjE1MjM1OTU5WjBF
-                <br />
-                MQswCQYDVQQGEwJBVTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50
-                <br />
-                ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB
-                <br />
-                CgKCAQEAu5JMkZm8qL7fNOCfV8X9GbYPKLm3VfM3VgKe2X9qsK5rJ8gL8mJ5rQ9y
-                <br />
-                -----END CERTIFICATE-----
-              </code>
+              <p className="text-xs text-muted-foreground">
+                Certificate binary is stored in backend storage. Click Download Certificate to view full PEM/DER content.
+              </p>
             </div>
           </div>
 
           {/* Actions */}
           <div className="flex gap-2 border-t border-border pt-6">
-            <Button className="flex-1 gap-2 bg-primary hover:bg-primary/90">📥 Download Certificate</Button>
+            <Button className="flex-1 gap-2 bg-primary hover:bg-primary/90" onClick={handleDownload} disabled={downloading}>
+              {downloading ? "Downloading..." : "Download Certificate"}
+            </Button>
             <Button variant="outline" className="flex-1 bg-transparent" onClick={onClose}>
               Close
             </Button>

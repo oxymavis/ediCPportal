@@ -7,8 +7,12 @@ export interface ApiResponse<T> {
   code?: string
 }
 
-// 为空字符串时走同源（Next 反向代理到后端），便于 ngrok 单域名访问
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL !== undefined ? process.env.NEXT_PUBLIC_API_BASE_URL : "http://localhost:8000"
+// 未设置时用 localhost:8000；设为空字符串时走同源（Next 反向代理），便于 ngrok 单域名
+const _apiBaseRaw = process.env.NEXT_PUBLIC_API_BASE_URL
+const API_BASE =
+  _apiBaseRaw === undefined || _apiBaseRaw === null
+    ? "http://localhost:8000"
+    : _apiBaseRaw
 
 function getCsrfToken(): string | null {
   if (typeof document === "undefined") return null
@@ -16,7 +20,11 @@ function getCsrfToken(): string | null {
   return m ? m[1] : null
 }
 
+const REQUEST_TIMEOUT_MS = 15000
+
 async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse<T>> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
     const headers: Record<string, string> = {
       ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
@@ -31,7 +39,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
       ...init,
       headers,
       credentials: "include",
+      signal: controller.signal,
     })
+    clearTimeout(timeoutId)
 
     const json = await response.json()
     if (!response.ok && json?.success !== false) {
@@ -43,6 +53,57 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
     }
 
     return json
+  } catch (e) {
+    clearTimeout(timeoutId)
+    if (e instanceof Error && e.name === "AbortError") {
+      return { success: false, error: "请求超时，请检查后端是否已启动" }
+    }
+    return { success: false, error: "Network error" }
+  }
+}
+
+function getFilenameFromDisposition(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i)
+  const raw = match?.[1] || match?.[2]
+  if (!raw) return fallback
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+async function download(path: string, fallbackFilename: string): Promise<ApiResponse<{ downloaded: boolean }>> {
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: "GET",
+      credentials: "include",
+    })
+    const contentType = (response.headers.get("content-type") || "").toLowerCase()
+    if (!response.ok || contentType.includes("application/json")) {
+      try {
+        const json = await response.json()
+        return {
+          success: false,
+          error: json?.error || `HTTP ${response.status}`,
+          code: json?.code,
+        }
+      } catch {
+        return { success: false, error: `HTTP ${response.status}` }
+      }
+    }
+    const blob = await response.blob()
+    const filename = getFilenameFromDisposition(response.headers.get("content-disposition"), fallbackFilename)
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    return { success: true, data: { downloaded: true } }
   } catch {
     return { success: false, error: "Network error" }
   }
@@ -51,6 +112,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
 export const apiClient = {
   getHealth() {
     return request<{ status: string; version?: string }>("/v1/meta/health")
+  },
+
+  // Auth (login does not send CSRF; session/cookie set by backend)
+  async login(email: string, password: string): Promise<ApiResponse<{ user: { id: string; name: string; email: string; emailVerified?: boolean } }>> {
+    try {
+      const response = await fetch(`${API_BASE}/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        credentials: "include",
+      })
+      const json = await response.json()
+      if (!response.ok) return { success: false, error: json?.error || "Login failed", code: json?.code }
+      return json
+    } catch {
+      return { success: false, error: "Network error" }
+    }
+  },
+
+  async getMe(): Promise<ApiResponse<{ user: { id: string; name: string; email: string; emailVerified?: boolean } }>> {
+    return request("/v1/auth/me")
   },
 
   // Partners
@@ -115,6 +197,10 @@ export const apiClient = {
     })
   },
 
+  downloadCertificate(id: number | string) {
+    return download(`/v1/certificates/${id}/download`, `certificate-${id}.pem`)
+  },
+
   // Specifications (section: 'unis' | 'tp' | 'all', default 'all' returns { unis, tp })
   getSpecifications(params?: { section?: "all" | "unis" | "tp" }) {
     const q = params?.section ? `?section=${params.section}` : ""
@@ -127,6 +213,14 @@ export const apiClient = {
       formData.append(key, value)
     })
     return request<any>("/v1/specifications/upload", { method: "POST", body: formData })
+  },
+
+  downloadSpecification(specId: string) {
+    return download(`/v1/specifications/${specId}/download`, `spec-${specId}`)
+  },
+
+  downloadUnisSpecification(code: string) {
+    return download(`/v1/specifications/unis/${code}/download`, `unis-${code}.txt`)
   },
 
   // Transactions
@@ -149,6 +243,12 @@ export const apiClient = {
 
   getRelatedTransactions(id: string) {
     return request<any[]>(`/v1/transactions/${id}/related`)
+  },
+
+  exportTransactions(format: "csv" | "xlsx", environment?: string) {
+    const params = new URLSearchParams({ format })
+    if (environment) params.set("environment", environment)
+    return download(`/v1/transactions/export?${params.toString()}`, `transactions.${format}`)
   },
 
   // Notifications
@@ -221,10 +321,11 @@ export const apiClient = {
     })
   },
 
-  getConnectionRuns(params?: { environment?: string; testType?: string }) {
+  getConnectionRuns(params?: { environment?: string; testType?: string; partnerId?: string }) {
     const search = new URLSearchParams()
     if (params?.environment) search.set("environment", params.environment)
     if (params?.testType) search.set("testType", params.testType)
+    if (params?.partnerId) search.set("partnerId", params.partnerId)
     const q = search.toString()
     return request<any[]>(`/v1/connection-testing/runs${q ? `?${q}` : ""}`)
   },

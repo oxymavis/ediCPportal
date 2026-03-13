@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
-    "dev": "next dev",
+    "build": "npx next build",
+    "dev": "npx next dev --webpack",
     "dev:backend": "cd backend && python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
     "backend:init": "cd backend && python3 -m app.cli",
+    "env:init": "bash scripts/env-init.sh",
     "lint": "eslint .",
-    "start": "next start",
+    "start": "npx next start",
     "test:backend": "cd backend && python3 -m pytest -q"
   },
   "dependencies": {

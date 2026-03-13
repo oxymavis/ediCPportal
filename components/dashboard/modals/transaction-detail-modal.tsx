@@ -31,6 +31,20 @@ export default function TransactionDetailModal({
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const exportTransaction = () => {
+    const isApi = transaction.integrationType === "api"
+    const content = typeof transaction.raw === "string" ? transaction.raw : JSON.stringify(transaction.raw, null, 2)
+    const ext = isApi ? "json" : "x12"
+    const mime = isApi ? "application/json" : "text/plain"
+    const blob = new Blob([content], { type: mime })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${transaction.id || "transaction"}.${ext}`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const errors: TxError[] = Array.isArray(transaction.errors) ? transaction.errors : []
   const logs: TxLog[] = Array.isArray(transaction.logs) ? transaction.logs : []
 
@@ -90,7 +104,7 @@ export default function TransactionDetailModal({
             <div className={`w-2.5 h-2.5 rounded-full ${
               transaction.status === "completed" ? "bg-green-500" : transaction.status === "error" ? "bg-red-500" : "bg-slate-400"
             }`} />
-            <span className="text-xs text-muted-foreground">997 Ack:</span>
+            <span className="text-xs text-muted-foreground">{transaction.integrationType === "api" ? "API Ack:" : "997 Ack:"}</span>
             <span className={`text-xs font-semibold ${
               transaction.status === "completed" ? "text-green-700" : transaction.status === "error" ? "text-red-700" : "text-slate-500"
             }`}>
@@ -172,7 +186,9 @@ export default function TransactionDetailModal({
           {activeTab === "raw" && (
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-foreground">Raw EDI X12 Format</h3>
+                <h3 className="font-semibold text-foreground">
+                  {transaction.integrationType === "api" ? "Raw API Payload" : "Raw EDI X12 Format"}
+                </h3>
                 <Button
                   variant="outline"
                   size="sm"
@@ -282,7 +298,9 @@ export default function TransactionDetailModal({
 
         {/* Footer */}
         <div className="flex gap-2 border-t border-border p-6 bg-card">
-          <Button className="flex-1 gap-2 bg-primary hover:bg-primary/90">Export Transaction</Button>
+          <Button className="flex-1 gap-2 bg-primary hover:bg-primary/90" onClick={exportTransaction}>
+            Export Transaction
+          </Button>
           <Button variant="outline" className="flex-1 bg-transparent" onClick={onClose}>
             Close
           </Button>

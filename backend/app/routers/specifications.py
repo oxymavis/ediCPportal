@@ -3,7 +3,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -67,6 +67,27 @@ def get_specifications(
     if section == 'all':
         return ok({'unis': unis, 'tp': tp})
     return fail('Invalid section; use unis, tp, or omit', 'SPEC_INVALID_SECTION')
+
+
+@router.get('/unis/{code}/download')
+def download_unis_specification(code: str, db: Session = Depends(get_db)):
+    spec = db.query(UnisSpecification).filter(UnisSpecification.code == code).first()
+    if not spec:
+        return fail('UNIS specification not found', 'SPEC_NOT_FOUND')
+    text = (
+        f"UNIS X12 Specification\n"
+        f"Code: {spec.code}\n"
+        f"Name: {spec.name}\n"
+        f"Category: {spec.category}\n"
+        f"Version: {spec.version}\n"
+        f"Last Updated: {spec.last_updated}\n\n"
+        f"Description:\n{spec.description}\n"
+    )
+    return StreamingResponse(
+        iter([text.encode('utf-8')]),
+        media_type='text/plain; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="UNIS-{spec.code}.txt"'},
+    )
 
 
 @router.post('')

@@ -18,12 +18,24 @@ import { apiClient } from "@/lib/api-client"
 export default function TransactionsTab() {
   const [transactions, setTransactions] = useState<any[]>([])
   const [selectedTrx, setSelectedTrx] = useState<any | null>(null)
+  const [trxDetail, setTrxDetail] = useState<any | null>(null)
 
   useEffect(() => {
     apiClient.getTransactions().then((r) => {
       if (r.success && Array.isArray(r.data)) setTransactions(r.data)
     })
   }, [])
+
+  useEffect(() => {
+    if (!selectedTrx?.id) {
+      setTrxDetail(null)
+      return
+    }
+    setTrxDetail(null)
+    apiClient.getTransaction(selectedTrx.id).then((r) => {
+      if (r.success && r.data) setTrxDetail(r.data)
+    })
+  }, [selectedTrx?.id])
 
   
   // Filter states
@@ -148,39 +160,12 @@ export default function TransactionsTab() {
     return docType ? docType.name : code
   }
 
-  // Export to Excel function
-  const exportToExcel = () => {
-    // Create CSV content
-    const headers = ["Transaction ID", "Document Type", "Type Name", "Partner", "Direction", "Status", "Date", "Time", "Size", "Records", "Control Number", "Sender ID", "Receiver ID"]
-    const csvContent = [
-      headers.join(","),
-      ...filteredTransactions.map(trx => [
-        trx.id,
-        trx.type,
-        trx.typeName,
-        trx.partner,
-        trx.direction,
-        trx.status,
-        trx.date,
-        trx.time,
-        trx.size,
-        trx.records,
-        trx.controlNumber,
-        trx.senderId,
-        trx.receiverId
-      ].map(field => `"${field}"`).join(","))
-    ].join("\n")
+  const exportToExcel = async () => {
+    await apiClient.exportTransactions("xlsx")
+  }
 
-    // Create and download file
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-    const link = document.createElement("a")
-    const url = URL.createObjectURL(blob)
-    link.setAttribute("href", url)
-    link.setAttribute("download", `transactions_${new Date().toISOString().split('T')[0]}.csv`)
-    link.style.visibility = "hidden"
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const exportToCsv = async () => {
+    await apiClient.exportTransactions("csv")
   }
 
   return (
@@ -224,13 +209,14 @@ export default function TransactionsTab() {
               API (REST)
             </button>
           </div>
-          <Button 
-            variant="outline" 
-            className="gap-2 bg-transparent"
-            onClick={exportToExcel}
-          >
-            Export Excel
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-2 bg-transparent" onClick={exportToCsv}>
+              Export CSV
+            </Button>
+            <Button variant="outline" className="gap-2 bg-transparent" onClick={exportToExcel}>
+              Export Excel
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -479,7 +465,12 @@ export default function TransactionsTab() {
       </div>
 
       {/* Transaction Detail Modal */}
-      {selectedTrx && <TransactionDetailModal transaction={selectedTrx} onClose={() => setSelectedTrx(null)} />}
+      {selectedTrx && (
+        <TransactionDetailModal
+          transaction={trxDetail ?? selectedTrx}
+          onClose={() => { setSelectedTrx(null); setTrxDetail(null) }}
+        />
+      )}
     </div>
   )
 }

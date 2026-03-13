@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { apiClient } from "@/lib/api-client"
 
 interface CertificateItem {
   id: number
@@ -39,8 +40,8 @@ export default function UNISCertificatesSection({ environment, certificates }: U
     })
   }, [certificates, environment, search])
 
-  const handleDownload = (cert: CertificateItem) => {
-    window.open(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}/v1/certificates/${cert.id}/download`, "_blank")
+  const handleDownload = async (cert: CertificateItem) => {
+    await apiClient.downloadCertificate(cert.id)
   }
 
   return (

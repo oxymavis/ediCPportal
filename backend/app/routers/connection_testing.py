@@ -6,6 +6,7 @@ import ssl
 import time
 from base64 import b64decode
 from datetime import datetime
+from urllib.parse import urlparse
 from uuid import uuid4
 from xml.etree import ElementTree
 
@@ -14,11 +15,11 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import ConnectionTestRun, ConnectionTestStep, DocumentTestReport, ValidatorReport
+from app.models import ConnectionTestRun, ConnectionTestStep, DocumentTestReport, Partner, Subsidiary, ValidatorReport
 from app.schemas.common import fail, ok
 from app.services.deps import get_actor, require_csrf, require_scope
 
@@ -41,6 +42,25 @@ def _store_step(db: Session, run_id: str, step_no: int, name: str, status: str, 
             evidence=evidence,
         )
     )
+
+
+def _check_partner_for_test(db: Session, partner_id: str | None, expected_type: str) -> tuple[Partner | None, dict | None]:
+    if not partner_id:
+        return None, None
+    partner = (
+        db.query(Partner)
+        .options(joinedload(Partner.subsidiaries).joinedload(Subsidiary.as2_profiles))
+        .filter(Partner.id == partner_id)
+        .first()
+    )
+    if not partner:
+        return None, fail('Partner not found', 'PARTNER_NOT_FOUND')
+    if (partner.integration_type or 'edi') != expected_type:
+        return None, fail(
+            f'Partner integrationType is {partner.integration_type}; {expected_type.upper()} test is not allowed',
+            'CONN_PARTNER_TYPE_MISMATCH',
+        )
+    return partner, None
 
 
 def _as2_steps(host: str, port: int, as2_id: str, payload: dict) -> list[tuple[str, callable]]:
@@ -127,14 +147,30 @@ def run_as2_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session
         if client_env != 'all' and client_env != env:
             return fail('Client environment is not allowed', 'CONN_ENV_FORBIDDEN')
 
+    partner, partner_err = _check_partner_for_test(db, payload.get('partnerId'), 'edi')
+    if partner_err:
+        return partner_err
+
     host = payload.get('host')
+    as2_id = payload.get('as2Id') or ''
+    if not host and partner:
+        first_profile = None
+        for sub in partner.subsidiaries:
+            if sub.as2_profiles:
+                first_profile = sub.as2_profiles[0]
+                break
+        if first_profile:
+            parsed = urlparse(first_profile.as2_url or '')
+            host = parsed.hostname
+            as2_id = as2_id or first_profile.as2_id
+            if not payload.get('port') and parsed.port:
+                payload['port'] = parsed.port
     if not host:
         return fail('Missing required field: host', 'CONN_VALIDATION')
     port = int(payload.get('port') or 443)
-    as2_id = payload.get('as2Id') or ''
     run_id = f'ctr-{uuid4().hex[:20]}'
     started = datetime.utcnow()
-    run = ConnectionTestRun(id=run_id, partner_id=payload.get('partnerId'), test_type='as2', environment=env, status='processing', summary={}, started_at=started, trace_id=getattr(payload, 'trace_id', None))
+    run = ConnectionTestRun(id=run_id, partner_id=payload.get('partnerId'), test_type='as2', environment=env, status='processing', summary={}, started_at=started, trace_id=payload.get('traceId'))
     db.add(run)
     db.commit()
 
@@ -173,13 +209,40 @@ def run_api_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session
         if client_env != 'all' and client_env != env:
             return fail('Client environment is not allowed', 'CONN_ENV_FORBIDDEN')
 
-    endpoint = payload.get('endpoint') or (settings.production_api_test_endpoint if env == 'production' else settings.sandbox_api_test_endpoint)
+    partner, partner_err = _check_partner_for_test(db, payload.get('partnerId'), 'api')
+    if partner_err:
+        return partner_err
+
+    endpoint = (
+        payload.get('endpoint')
+        or ((partner.api_config or {}).get('baseUrl') if partner else None)
+        or (settings.production_api_test_endpoint if env == 'production' else settings.sandbox_api_test_endpoint)
+    )
+    if not endpoint:
+        return fail('Missing endpoint for API connection test', 'CONN_VALIDATION')
+
+    parsed_endpoint = urlparse(endpoint)
+    if parsed_endpoint.scheme not in {'http', 'https'}:
+        return fail('endpoint must be http/https', 'CONN_VALIDATION')
+
     run_id = f'ctr-{uuid4().hex[:20]}'
-    run = ConnectionTestRun(id=run_id, partner_id=payload.get('partnerId'), test_type='api', environment=env, status='processing', summary={}, started_at=datetime.utcnow(), trace_id=None)
+    run = ConnectionTestRun(
+        id=run_id,
+        partner_id=payload.get('partnerId'),
+        test_type='api',
+        environment=env,
+        status='processing',
+        summary={},
+        started_at=datetime.utcnow(),
+        trace_id=payload.get('traceId'),
+    )
     db.add(run)
     db.commit()
 
     steps = []
+    auth_mode = str(payload.get('auth') or 'oauth2').lower()
+    token_holder: dict[str, str | None] = {'token': None}
+    response_snapshot: dict[str, object] = {}
 
     def do_step(name: str, fn):
         t0 = time.perf_counter()
@@ -195,20 +258,94 @@ def run_api_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session
             msg = str(exc)
         steps.append((name, st, latency, msg, ev))
 
-    do_step('Endpoint Reachability', lambda: {'valid': endpoint.startswith('http')})
-    do_step(
-        'Auth Header Acceptance',
-        lambda: {'valid': bool(payload.get('auth') in {'oauth2', 'api-key', 'none'}), 'auth': payload.get('auth', 'none')},
-    )
+    def endpoint_reachability():
+        infos = socket.getaddrinfo(parsed_endpoint.hostname or '', parsed_endpoint.port or 443, proto=socket.IPPROTO_TCP)
+        return {'valid': len(infos) > 0, 'host': parsed_endpoint.hostname, 'resolved': list({x[4][0] for x in infos})[:5]}
+
+    do_step('Endpoint Reachability', endpoint_reachability)
+
+    def tls_cert_check():
+        if parsed_endpoint.scheme != 'https':
+            return {'valid': True, 'skipped': True, 'reason': 'non-https endpoint'}
+        port = parsed_endpoint.port or 443
+        ctx = ssl.create_default_context()
+        with socket.create_connection((parsed_endpoint.hostname or '', port), timeout=6) as sock:
+            with ctx.wrap_socket(sock, server_hostname=parsed_endpoint.hostname) as ssock:
+                cert = ssock.getpeercert()
+                return {'valid': True, 'issuer': cert.get('issuer'), 'subject': cert.get('subject')}
+
+    do_step('TLS Certificate Check', tls_cert_check)
+
+    def auth_prepare():
+        if auth_mode == 'none':
+            return {'valid': True, 'auth': 'none'}
+        if auth_mode == 'oauth2':
+            token = payload.get('oauthToken')
+            token_url = payload.get('tokenUrl')
+            client_id = payload.get('clientId')
+            client_secret = payload.get('clientSecret')
+            if not token and token_url and client_id and client_secret:
+                with httpx.Client(timeout=8.0) as client:
+                    resp = client.post(
+                        str(token_url),
+                        data={
+                            'grant_type': 'client_credentials',
+                            'client_id': str(client_id),
+                            'client_secret': str(client_secret),
+                        },
+                    )
+                    if resp.status_code < 400:
+                        token = (resp.json() or {}).get('access_token')
+            token_holder['token'] = str(token) if token else None
+            return {'valid': True, 'auth': 'oauth2', 'tokenReady': bool(token_holder['token'])}
+        if auth_mode == 'api-key':
+            return {'valid': True, 'auth': 'api-key', 'apiKeyProvided': bool(payload.get('apiKey') or payload.get('xApiKey'))}
+        return {'valid': False, 'reason': 'auth must be oauth2|api-key|none'}
+
+    do_step('Auth Preparation', auth_prepare)
 
     def call_endpoint():
-        with httpx.Client(timeout=6.0) as client:
-            resp = client.get(endpoint)
-            return {'valid': resp.status_code < 500, 'statusCode': resp.status_code}
+        request_headers: dict[str, str] = {}
+        if auth_mode == 'oauth2' and token_holder['token']:
+            request_headers['Authorization'] = f'Bearer {token_holder["token"]}'
+        if auth_mode == 'api-key':
+            api_key = payload.get('apiKey') or payload.get('xApiKey')
+            if api_key:
+                request_headers['x-api-key'] = str(api_key)
 
-    do_step('HTTP Connectivity', call_endpoint)
-    do_step('Schema Sanity', lambda: {'valid': isinstance(payload.get('samplePayload', {}), dict)})
-    do_step('Response Contract', lambda: {'valid': True, 'contract': 'basic'})
+        sample = payload.get('samplePayload')
+        with httpx.Client(timeout=6.0) as client:
+            if isinstance(sample, dict):
+                resp = client.post(endpoint, json=sample, headers=request_headers)
+            else:
+                resp = client.get(endpoint, headers=request_headers)
+        response_snapshot['status'] = resp.status_code
+        response_snapshot['contentType'] = resp.headers.get('content-type', '')
+        response_snapshot['bodyPreview'] = (resp.text or '')[:200]
+        valid = resp.status_code < 500 and (auth_mode == 'none' or resp.status_code not in {401, 403})
+        return {
+            'valid': valid,
+            'statusCode': resp.status_code,
+            'contentType': resp.headers.get('content-type'),
+            'bodyPreview': response_snapshot['bodyPreview'],
+        }
+
+    do_step('Authenticated Request', call_endpoint)
+
+    def schema_sanity():
+        sample = payload.get('samplePayload', {})
+        return {'valid': isinstance(sample, dict), 'sampleType': type(sample).__name__}
+
+    do_step('Schema Sanity', schema_sanity)
+
+    def response_contract():
+        status_code = int(response_snapshot.get('status', 0) or 0)
+        content_type = str(response_snapshot.get('contentType', ''))
+        ok_status = 200 <= status_code < 500
+        ok_type = ('json' in content_type.lower()) or ('text/' in content_type.lower()) or status_code == 204
+        return {'valid': ok_status and ok_type, 'statusCode': status_code, 'contentType': content_type}
+
+    do_step('Response Contract Check', response_contract)
 
     passed = 0
     failed = 0
@@ -220,19 +357,27 @@ def run_api_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session
         _store_step(db, run_id, idx, name, st, latency, msg, ev)
 
     run.status = 'passed' if failed == 0 else ('partial' if passed > 0 else 'failed')
-    run.summary = {'passedSteps': passed, 'failedSteps': failed, 'totalSteps': len(steps), 'endpoint': endpoint}
+    run.summary = {
+        'passedSteps': passed,
+        'failedSteps': failed,
+        'totalSteps': len(steps),
+        'endpoint': endpoint,
+        'auth': auth_mode,
+    }
     run.finished_at = datetime.utcnow()
     db.commit()
     return ok({'runId': run_id, 'status': run.status, 'summary': run.summary})
 
 
 @router.get('/runs')
-def list_runs(environment: str | None = None, testType: str | None = None, db: Session = Depends(get_db)):
+def list_runs(environment: str | None = None, testType: str | None = None, partnerId: str | None = None, db: Session = Depends(get_db)):
     q = db.query(ConnectionTestRun)
     if environment:
         q = q.filter(ConnectionTestRun.environment == environment)
     if testType:
         q = q.filter(ConnectionTestRun.test_type == testType)
+    if partnerId:
+        q = q.filter(ConnectionTestRun.partner_id == partnerId)
     rows = q.order_by(ConnectionTestRun.started_at.desc()).all()
     return ok(
         [

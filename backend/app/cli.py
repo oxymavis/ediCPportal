@@ -88,11 +88,11 @@ def verify_db() -> int:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="DB bootstrap utilities")
-    parser.add_argument("command", nargs="?", default="init", choices=["init", "verify", "all"])
+    parser.add_argument("command", nargs="?", default="init", choices=["init", "seed", "verify", "all"])
     args = parser.parse_args()
 
-    if args.command in {"init", "all"}:
+    if args.command in {"init", "seed", "all"}:
         init_db()
-        print("Database initialized and seed applied.")
+        print("Database initialized and demo seed applied.")
     if args.command in {"verify", "all"}:
         sys.exit(verify_db())

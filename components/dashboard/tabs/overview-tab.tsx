@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import IntegrationLifecyclePipeline, { buildIntegrationSteps, getProgressFromStep, getStepLabel } from "../integration-lifecycle"
 import { apiClient } from "@/lib/api-client"
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 interface OverviewTabProps {
   onNavigate?: (tab: string) => void
@@ -87,6 +88,7 @@ export default function OverviewTab({ onNavigate }: OverviewTabProps) {
       const dates = (lifecycle.stepCompletionDates || {}) as Record<number, string>
       const liveTxn = transactions.filter((t) => t.partner === p.name).length
       return {
+        id: p.id,
         partner: p.name,
         code: p.code,
         integrationType: p.integrationType,
@@ -100,12 +102,42 @@ export default function OverviewTab({ onNavigate }: OverviewTabProps) {
 
   const channelHealth = useMemo(() => {
     return partnerStatus.map((p) => ({
+      id: p.id,
       name: p.partner,
       protocol: p.channel,
       status: p.currentStepId >= 5 ? "active" : "testing",
       messages: transactions.filter((t) => t.partner === p.partner).length,
     }))
   }, [partnerStatus, transactions])
+
+  const monthlyVolume = useMemo(() => {
+    const map = new Map<string, { month: string; edi: number; api: number }>()
+    for (const t of transactions) {
+      const month = t.date.slice(0, 7)
+      const item = map.get(month) || { month, edi: 0, api: 0 }
+      if ((t.integrationType || "edi") === "api") item.api += 1
+      else item.edi += 1
+      map.set(month, item)
+    }
+    return Array.from(map.values())
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .slice(-6)
+      .map((x) => ({ ...x, label: x.month.slice(5) }))
+  }, [transactions])
+
+  const statusDistribution = useMemo(() => {
+    const base: Record<string, number> = { completed: 0, processing: 0, pending: 0, error: 0 }
+    for (const t of transactions) {
+      const status = String(t.status || "processing").toLowerCase()
+      if (base[status] !== undefined) base[status] += 1
+    }
+    return [
+      { status: "completed", count: base.completed },
+      { status: "processing", count: base.processing },
+      { status: "pending", count: base.pending },
+      { status: "error", count: base.error },
+    ]
+  }, [transactions])
 
   return (
     <div className="space-y-6">
@@ -128,6 +160,45 @@ export default function OverviewTab({ onNavigate }: OverviewTabProps) {
         ))}
       </div>
 
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <Card className="p-5 xl:col-span-2">
+          <div className="mb-4">
+            <h3 className="font-semibold text-foreground">Transaction Trend (Last 6 Months)</h3>
+            <p className="text-sm text-muted-foreground">EDI/API volume from database transactions</p>
+          </div>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlyVolume}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#d4d4d8" />
+                <XAxis dataKey="label" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Line type="monotone" dataKey="edi" stroke="#0284c7" strokeWidth={2} />
+                <Line type="monotone" dataKey="api" stroke="#059669" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-4">
+            <h3 className="font-semibold text-foreground">Status Distribution</h3>
+            <p className="text-sm text-muted-foreground">Current transaction states</p>
+          </div>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={statusDistribution}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#d4d4d8" />
+                <XAxis dataKey="status" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#2563eb" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      </div>
+
       {showPanels && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-5">
@@ -138,9 +209,9 @@ export default function OverviewTab({ onNavigate }: OverviewTabProps) {
               </div>
               <Button variant="outline" size="sm" className="bg-transparent" onClick={() => onNavigate?.("partners")}>View Partners</Button>
             </div>
-            <div className="space-y-3">
-              {channelHealth.map((ch) => (
-                <div key={`${ch.name}-${ch.protocol}`} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+              <div className="space-y-3">
+                {channelHealth.map((ch) => (
+                <div key={`${ch.id}-${ch.protocol}`} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                   <div className="flex items-center gap-3">
                     <div className={`w-2.5 h-2.5 rounded-full ${ch.status === "active" ? "bg-green-500" : "bg-amber-500"}`} />
                     <div>
@@ -192,7 +263,7 @@ export default function OverviewTab({ onNavigate }: OverviewTabProps) {
         </div>
         <div className="space-y-3">
           {partnerStatus.map((p) => (
-            <div key={p.code} className="flex items-center justify-between py-3 border-b border-border last:border-0 gap-4">
+            <div key={p.id} className="flex items-center justify-between py-3 border-b border-border last:border-0 gap-4">
               <div className="flex items-center gap-4 min-w-0">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                   <span className="text-xs font-bold text-primary">{p.code.slice(0, 2)}</span>

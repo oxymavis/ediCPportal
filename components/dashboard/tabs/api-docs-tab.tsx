@@ -63,7 +63,7 @@ export default function ApiDocsTab() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-foreground mb-2">API Documentation</h2>
-        <p className="text-muted-foreground">All content is database-backed from /v1/api-docs/messages</p>
+        <p className="text-muted-foreground">Message types, schemas, X12 mappings, and request/response samples (database-backed).</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -104,9 +104,18 @@ export default function ApiDocsTab() {
                 </Button>
               </div>
 
+              {schema && typeof schema === "object" && "description" in schema && typeof (schema as Record<string, unknown>).description === "string" && (
+                <div>
+                  <h4 className="font-medium text-foreground mb-2">Overview</h4>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap rounded-md bg-muted/50 p-3 border border-border">
+                    {(schema as Record<string, unknown>).description as string}
+                  </p>
+                </div>
+              )}
+
               <div>
                 <h4 className="font-medium text-foreground mb-2">Schema</h4>
-                <pre className="text-xs bg-secondary/40 rounded-md p-3 overflow-auto max-h-64">{JSON.stringify(schema, null, 2)}</pre>
+                <pre className="text-xs bg-secondary/40 rounded-md p-3 overflow-auto max-h-80">{JSON.stringify(schema, null, 2)}</pre>
               </div>
 
               <div>
@@ -116,8 +125,13 @@ export default function ApiDocsTab() {
                 ) : (
                   <div className="space-y-2">
                     {mapping.map((row, idx) => (
-                      <div key={`${row.jsonField}-${idx}`} className="p-2 rounded border border-border text-sm">
-                        <span className="font-medium">{row.jsonField}</span> {" -> "} {row.x12Segment}{row.x12Element ? `.${row.x12Element}` : ""}
+                      <div key={`${row.jsonField}-${idx}`} className="p-3 rounded-md border border-border text-sm space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium font-mono text-foreground">{row.jsonField}</span>
+                          <span className="text-muted-foreground">→</span>
+                          <span className="font-mono">{row.x12Segment}{row.x12Element ? `.${row.x12Element}` : ""}</span>
+                        </div>
+                        {row.notes && <p className="text-xs text-muted-foreground">{row.notes}</p>}
                       </div>
                     ))}
                   </div>
@@ -129,11 +143,11 @@ export default function ApiDocsTab() {
                 {samples.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No sample payloads.</p>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {samples.map((sample, idx) => (
                       <div key={`${sample.type}-${idx}`}>
                         <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">{sample.type}</p>
-                        <pre className="text-xs bg-secondary/40 rounded-md p-3 overflow-auto max-h-56">{JSON.stringify(sample.content || {}, null, 2)}</pre>
+                        <pre className="text-xs bg-secondary/40 rounded-md p-3 overflow-auto max-h-72 border border-border">{JSON.stringify(sample.content || {}, null, 2)}</pre>
                       </div>
                     ))}
                   </div>

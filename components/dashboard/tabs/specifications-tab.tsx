@@ -85,8 +85,12 @@ export default function SpecificationsTab() {
     })
   }, [tpSpecifications, tpSearchTerm, selectedTPFilter])
 
-  const downloadTp = (specId: string) => {
-    window.open(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}/v1/specifications/${specId}/download`, "_blank")
+  const downloadTp = async (specId: string) => {
+    await apiClient.downloadSpecification(specId)
+  }
+
+  const downloadUnis = async (code: string) => {
+    await apiClient.downloadUnisSpecification(code)
   }
 
   return (
@@ -132,6 +136,11 @@ export default function SpecificationsTab() {
                 <p className="font-medium text-foreground">{spec.name}</p>
                 <p className="text-sm text-muted-foreground mt-2 line-clamp-3">{spec.description}</p>
                 <div className="text-xs text-muted-foreground mt-3">Version {spec.version} | Updated {spec.lastUpdated}</div>
+                <div className="mt-3">
+                  <Button variant="outline" size="sm" className="bg-transparent" onClick={() => downloadUnis(spec.code)}>
+                    Download
+                  </Button>
+                </div>
               </Card>
             ))}
           </div>

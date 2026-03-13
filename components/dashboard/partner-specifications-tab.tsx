@@ -79,7 +79,7 @@ export default function PartnerSpecificationsTab({ partnerName, partnerCode }: P
                   variant="outline"
                   size="sm"
                   className="bg-transparent"
-                  onClick={() => window.open(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}/v1/specifications/${spec.id}/download`, "_blank")}
+                  onClick={() => apiClient.downloadSpecification(spec.id)}
                 >
                   Download
                 </Button>

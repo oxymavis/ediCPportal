@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { apiClient } from "@/lib/api-client"
 
 interface AddPartnerModalProps {
   onClose: () => void
@@ -19,14 +20,45 @@ const STEP_LABELS = [
   "Review",
 ]
 
+/** Normalize backend partner response to TradingPartner shape for list display */
+function normalizePartnerFromApi(p: any): any {
+  const lifecycle = p.lifecycle || {}
+  const channel = p.communicationChannel
+  const channelObj = typeof channel === "string"
+    ? { type: channel, status: "configured" as const, config: p.apiConfig || {} }
+    : channel
+  return {
+    id: p.id,
+    name: p.name,
+    code: p.code,
+    type: (p as any).type ?? "retailer",
+    tier: (p as any).tier ?? "standard",
+    email: p.primaryContact?.email ?? (p as any).email ?? "",
+    status: p.status ?? "active",
+    integrationType: p.integrationType ?? "edi",
+    communicationChannel: channelObj,
+    currentStepId: lifecycle.currentStepId ?? 1,
+    onboardingStartDate: lifecycle.onboardingStartDate ?? new Date().toISOString().split("T")[0],
+    stepCompletionDates: lifecycle.stepCompletionDates ?? {},
+    subsidiaries: p.subsidiaries ?? [],
+    as2Profiles: (p.subsidiaries ?? []).flatMap((s: any) => s.as2Profiles ?? []),
+    documentTypes: (p.subsidiaries ?? [])[0]?.supportedDocTypes?.x12 ?? [],
+    lastSync: "--",
+    transactionCount: 0,
+  }
+}
+
 export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProps) {
   const [step, setStep] = useState(1)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: "",
     code: "",
     type: "retailer",
     tier: "standard",
     email: "",
+    status: "active" as "active" | "inactive",
     // Integration path
     integrationType: "" as "api" | "edi" | "",
     // EDI channel config
@@ -81,59 +113,70 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
     }))
   }
 
-  const handleSubmit = () => {
-    const channelConfig: Record<string, string> = {}
-    if (formData.integrationType === "edi") {
-      if (formData.channelType === "AS2") {
-        channelConfig.as2Id = formData.as2Id
-        channelConfig.endpoint = formData.as2Url
-      } else if (formData.channelType === "SFTP") {
-        channelConfig.host = formData.sftpHost
-        channelConfig.port = formData.sftpPort
-        channelConfig.user = formData.sftpUser
-      } else {
-        channelConfig.vanProvider = formData.vanProvider
-        channelConfig.networkId = formData.vanNetworkId
-      }
-    } else {
-      channelConfig.baseUrl = formData.apiBaseUrl || "https://api.unis-edi.com/v1"
-      if (formData.apiWebhookUrl) channelConfig.webhook = formData.apiWebhookUrl
+  const handleSubmit = async () => {
+    setError(null)
+    setSaving(true)
+
+    const communicationChannel = formData.integrationType === "api" ? "REST_API" : formData.channelType
+    const apiConfig =
+      formData.integrationType === "api"
+        ? {
+            baseUrl: formData.apiBaseUrl || "https://api.unis-edi.com/v1",
+            ...(formData.apiWebhookUrl ? { webhook: formData.apiWebhookUrl } : {}),
+          }
+        : undefined
+
+    const subsidiaries: any[] = []
+    if (formData.integrationType === "edi" && formData.channelType === "AS2" && formData.as2Id) {
+      subsidiaries.push({
+        name: `${formData.name} Primary`,
+        code: `${formData.code}-PRIMARY`,
+        region: "",
+        status: "active",
+        supportedDocTypes: { x12: formData.documentTypes, edifact: [] },
+        as2Profiles: [
+          {
+            name: `${formData.name} Primary`,
+            as2Id: formData.as2Id,
+            as2Url: formData.as2Url,
+            status: "active",
+            encryptionCert: formData.encryptionCert || undefined,
+            signingCert: formData.signingCert || undefined,
+          },
+        ],
+      })
+    } else if (formData.documentTypes.length > 0) {
+      subsidiaries.push({
+        name: formData.name,
+        code: formData.code,
+        region: "",
+        status: "active",
+        supportedDocTypes: { x12: formData.documentTypes, edifact: [] },
+        as2Profiles: [],
+      })
     }
 
-    const newPartner = {
-      id: `tp-${Date.now()}`,
-      name: formData.name,
-      code: formData.code,
-      type: formData.type,
-      tier: formData.tier,
-      email: formData.email,
-      status: "active",
+    const payload = {
+      name: formData.name.trim(),
+      code: formData.code.trim().toUpperCase(),
+      primaryContact: { name: formData.name, email: formData.email },
       integrationType: formData.integrationType,
-      communicationChannel: {
-        type: formData.integrationType === "api" ? "REST_API" : formData.channelType,
-        status: "configured",
-        config: channelConfig,
-      },
+      communicationChannel,
+      status: formData.status,
       currentStepId: 1,
       onboardingStartDate: new Date().toISOString().split("T")[0],
       stepCompletionDates: {},
-      subsidiaries: [],
-      as2Profiles: formData.integrationType === "edi" && formData.channelType === "AS2" && formData.as2Id
-        ? [{
-            id: `as2-${Date.now()}`,
-            name: `${formData.name} Primary`,
-            as2Id: formData.as2Id,
-            url: formData.as2Url,
-            encryptionCert: formData.encryptionCert,
-            signingCert: formData.signingCert,
-            status: "active",
-          }]
-        : [],
-      documentTypes: formData.documentTypes,
-      lastSync: "--",
-      transactionCount: 0,
+      ...(apiConfig ? { apiConfig } : {}),
+      subsidiaries,
     }
-    onSave(newPartner)
+
+    const res = await apiClient.createPartner(payload)
+    setSaving(false)
+    if (!res.success || !res.data) {
+      setError(res.error || "Failed to create partner")
+      return
+    }
+    onSave(normalizePartnerFromApi(res.data))
     onClose()
   }
 
@@ -215,6 +258,13 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
               <div className="space-y-2">
                 <Label htmlFor="email">Contact Email *</Label>
                 <Input id="email" type="email" placeholder="edi@partner.com" value={formData.email} onChange={e => setFormData(p => ({ ...p, email: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="status">Initial Status</Label>
+                <select id="status" value={formData.status} onChange={e => setFormData(p => ({ ...p, status: e.target.value as "active" | "inactive" }))} className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground">
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
               </div>
             </div>
           )}
@@ -488,12 +538,17 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
                 Continue
               </Button>
             ) : (
-              <Button className="bg-primary hover:bg-primary/90" onClick={handleSubmit}>
-                Create Partner
+              <Button className="bg-primary hover:bg-primary/90" onClick={handleSubmit} disabled={saving}>
+                {saving ? "Creating…" : "Create Partner"}
               </Button>
             )}
           </div>
         </div>
+        {error && (
+          <div className="px-6 pb-2 text-sm text-destructive" role="alert">
+            {error}
+          </div>
+        )}
       </Card>
     </div>
   )

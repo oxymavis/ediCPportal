@@ -1,9 +1,19 @@
 from __future__ import annotations
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 始终从 backend 目录加载 .env，避免受当前工作目录影响
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+_ENV_FILE = _BACKEND_DIR / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE if _ENV_FILE.exists() else ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     app_name: str = 'UNIS EDI API'
     app_env: str = 'development'
@@ -17,7 +27,7 @@ class Settings(BaseSettings):
     csrf_header_name: str = 'x-csrf-token'
     cookie_secure: bool = False
     cookie_samesite: str = 'lax'
-    cors_origins: str = 'http://localhost:3000'
+    cors_origins: str = 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001'
     email_mode: str = 'mock'
     local_storage_path: str = './storage'
     smtp_host: str = 'localhost'
@@ -41,7 +51,7 @@ class Settings(BaseSettings):
     feature_notif_sse: bool = True
     sandbox_api_test_endpoint: str = 'https://httpbin.org/get'
     production_api_test_endpoint: str = 'https://httpbin.org/get'
-    rate_limit_requests: int = 120
+    rate_limit_requests: int = 2000
     rate_limit_window_seconds: int = 60
     auto_create_tables: bool = True
     auto_seed: bool = True

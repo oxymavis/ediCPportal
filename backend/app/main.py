@@ -104,11 +104,12 @@ app.add_middleware(
 )
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestGuardMiddleware)
-app.add_middleware(
-    RateLimitMiddleware,
-    max_requests=settings.rate_limit_requests,
-    window_seconds=settings.rate_limit_window_seconds,
-)
+if settings.app_env != "development":
+    app.add_middleware(
+        RateLimitMiddleware,
+        max_requests=settings.rate_limit_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
 app.add_middleware(TraceAndAuditMiddleware)
 
 

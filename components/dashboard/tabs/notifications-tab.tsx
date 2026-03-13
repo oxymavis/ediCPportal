@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { apiClient } from "@/lib/api-client"
 
 type NotificationType = "warning" | "error" | "info"
 
@@ -30,161 +31,19 @@ interface Notification {
 
 export default function NotificationsTab() {
   const [environment, setEnvironment] = useState<"production" | "sandbox">("production")
-  const [notifications, setNotifications] = useState<Notification[]>([
-    // Production Notifications
-    {
-      id: 1,
-      type: "warning",
-      title: "Certificate Expiring Soon",
-      message: "AS2 Certificate for Target Stores expires in 30 days",
-      date: "2024-01-15",
-      time: "14:30",
-      read: false,
-      archived: false,
-      environment: "production",
-      action: { label: "View Certificate", link: "#certificates" },
-      details: {
-        partnerName: "Target Corporation",
-        certificateName: "Target Stores - AS2",
-        expiresIn: "30 days",
-      },
-    },
-    {
-      id: 2,
-      type: "error",
-      title: "Transaction Processing Failed",
-      message: "EDI-940 document processing failed due to validation error",
-      date: "2024-01-14",
-      time: "10:15",
-      read: false,
-      archived: false,
-      environment: "production",
-      action: { label: "View Transaction", link: "#transactions" },
-      details: {
-        partnerName: "SPS Commerce",
-        errorCode: "VALIDATION_ERROR_001",
-      },
-    },
-    {
-      id: 3,
-      type: "warning",
-      title: "Certificate Expiring Soon",
-      message: "SSL Certificate for SPS Commerce expired",
-      date: "2024-01-12",
-      time: "15:45",
-      read: true,
-      archived: false,
-      environment: "production",
-      details: {
-        partnerName: "SPS Commerce",
-        certificateName: "SPS Commerce - SSL",
-        expiresIn: "Expired",
-      },
-    },
-    {
-      id: 4,
-      type: "info",
-      title: "New Trading Partner Added",
-      message: "Home Depot has been successfully configured and is ready for transactions",
-      date: "2024-01-11",
-      time: "11:00",
-      read: true,
-      archived: false,
-      environment: "production",
-      details: {
-        partnerName: "Home Depot",
-      },
-    },
-    {
-      id: 5,
-      type: "error",
-      title: "AS2 Connection Failed",
-      message: "Failed to establish AS2 connection with Walmart Mexico endpoint",
-      date: "2024-01-10",
-      time: "08:30",
-      read: true,
-      archived: false,
-      environment: "production",
-      details: {
-        partnerName: "Walmart Mexico",
-        errorCode: "AS2_CONNECTION_TIMEOUT",
-      },
-    },
-    {
-      id: 6,
-      type: "warning",
-      title: "High Transaction Volume Alert",
-      message: "Transaction volume for Amazon exceeded 10,000 in the last 24 hours",
-      date: "2024-01-09",
-      time: "09:00",
-      read: true,
-      archived: false,
-      environment: "production",
-      details: {
-        partnerName: "Amazon",
-      },
-    },
-    {
-      id: 7,
-      type: "error",
-      title: "Document Rejection",
-      message: "856 ASN rejected by Costco - Missing required segments",
-      date: "2024-01-08",
-      time: "14:22",
-      read: true,
-      archived: true,
-      environment: "production",
-      details: {
-        partnerName: "Costco",
-        errorCode: "MISSING_SEGMENTS_HL",
-      },
-    },
-    // Sandbox Notifications
-    {
-      id: 101,
-      type: "info",
-      title: "Sandbox Environment Ready",
-      message: "Test Partner A has been configured in the sandbox environment",
-      date: "2024-01-15",
-      time: "09:00",
-      read: false,
-      archived: false,
-      environment: "sandbox",
-      details: {
-        partnerName: "Test Partner A",
-      },
-    },
-    {
-      id: 102,
-      type: "warning",
-      title: "Test Certificate Expiring",
-      message: "Sandbox test certificate will expire in 90 days",
-      date: "2024-01-14",
-      time: "10:00",
-      read: true,
-      archived: false,
-      environment: "sandbox",
-      details: {
-        certificateName: "Sandbox AS2 Certificate",
-        expiresIn: "90 days",
-      },
-    },
-    {
-      id: 103,
-      type: "error",
-      title: "Test Connection Failed",
-      message: "Test connection to Test Partner B endpoint failed",
-      date: "2024-01-13",
-      time: "11:30",
-      read: true,
-      archived: false,
-      environment: "sandbox",
-      details: {
-        partnerName: "Test Partner B",
-        errorCode: "TEST_CONNECTION_ERROR",
-      },
-    },
-  ])
+  const [notifications, setNotifications] = useState<Notification[]>([])
+
+  useEffect(() => {
+    apiClient.getNotifications().then((r) => {
+      if (r.success && Array.isArray(r.data)) setNotifications(r.data as Notification[])
+    })
+  }, [])
+
+  const refetchNotifications = () => {
+    apiClient.getNotifications().then((r) => {
+      if (r.success && Array.isArray(r.data)) setNotifications(r.data as Notification[])
+    })
+  }
 
   const [filterType, setFilterType] = useState<NotificationType | "all">("all")
   const [showArchived, setShowArchived] = useState(false)
@@ -231,20 +90,24 @@ export default function NotificationsTab() {
 
   const unreadCount = notifications.filter((n) => !n.read && !n.archived && n.environment === environment).length
 
-  const handleMarkAsRead = (id: number) => {
-    setNotifications(notifications.map((n) => (n.id === id ? { ...n, read: true } : n)))
+  const handleMarkAsRead = async (id: number) => {
+    const res = await apiClient.markNotificationRead(id)
+    if (res.success) setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
   }
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(notifications.map((n) => (n.archived || n.environment !== environment ? n : { ...n, read: true })))
+  const handleMarkAllAsRead = async () => {
+    const res = await apiClient.markAllNotificationsRead(environment)
+    if (res.success) refetchNotifications()
   }
 
-  const handleArchive = (id: number) => {
-    setNotifications(notifications.map((n) => (n.id === id ? { ...n, archived: true } : n)))
+  const handleArchive = async (id: number) => {
+    const res = await apiClient.updateNotification(id, { archived: true })
+    if (res.success) setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, archived: true } : n)))
   }
 
-  const handleInactive = (id: number) => {
-    setNotifications(notifications.map((n) => n.id === id ? { ...n, archived: true } : n))
+  const handleInactive = async (id: number) => {
+    const res = await apiClient.updateNotification(id, { archived: true })
+    if (res.success) setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, archived: true } : n)))
   }
 
   return (

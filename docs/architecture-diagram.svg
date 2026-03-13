@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" width="900" height="620">
+  <style>
+    .title { font: bold 18px sans-serif; fill: #1565c0; }
+    .layer { font: bold 12px sans-serif; fill: #37474f; }
+    .box { stroke: #1565c0; stroke-width: 2; fill: #f0f4f8; rx: 8; }
+    .box-front { stroke: #00897b; fill: #e0f2f1; }
+    .box-back { stroke: #546e7a; fill: #eceff1; }
+    .text { font: 11px sans-serif; fill: #333; }
+    .text-bold { font: bold 11px sans-serif; fill: #333; }
+    .arrow { stroke: #666; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+  </style>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#666"/></marker></defs>
+  <text x="450.0" y="28" text-anchor="middle" class="title">EDI Portal 技术架构图</text>
+  <text x="30" y="58" class="layer">用户层</text>
+  <rect x="30" y="64" width="840" height="52" class="box-back"/>
+  <text x="50" y="88" class="text">浏览器 (Chrome / Safari / ...) → 访问前端 (HTTPS / localhost:3000)</text>
+  <text x="30" y="148" class="layer">前端 (Next.js)</text>
+  <rect x="30" y="154" width="410" height="160" class="box-front"/>
+  <text x="50" y="178" class="text-bold">Next.js 16 · App Router</text>
+  <text x="50" y="198" class="text">React 19, TypeScript 5, Tailwind CSS 4</text>
+  <text x="50" y="218" class="text">Radix UI, React Hook Form, Zod, Recharts</text>
+  <text x="50" y="238" class="text">lib/api-client.ts (fetch + CSRF + 超时)</text>
+  <text x="50" y="258" class="text">rewrites: /v1/* → 后端 8000 (同源代理)</text>
+  <text x="50" y="278" class="text">路由: / (登录), /dashboard?tab=...</text>
+  <text x="460" y="148" class="layer">后端 (FastAPI)</text>
+  <rect x="460" y="154" width="410" height="160" class="box"/>
+  <text x="480" y="178" class="text-bold">FastAPI · Uvicorn (ASGI)</text>
+  <text x="480" y="198" class="text">中间件: CORS, 安全头, 限流(生产), 审计</text>
+  <text x="480" y="218" class="text">Routers: auth, partners, certificates, transactions,</text>
+  <text x="480" y="238" class="text">notifications, specifications, oauth, connection_testing...</text>
+  <text x="480" y="258" class="text">Services: deps, mappers, storage, email, security</text>
+  <text x="480" y="278" class="text">认证: Session/Cookie + JWT, CSRF, passlib(bcrypt)</text>
+  <text x="30" y="348" class="layer">数据层</text>
+  <rect x="30" y="354" width="410" height="120" class="box-back"/>
+  <text x="50" y="378" class="text-bold">SQLAlchemy 2 · Alembic</text>
+  <text x="50" y="398" class="text">开发: SQLite (dev.db) | 生产: PostgreSQL</text>
+  <text x="50" y="418" class="text">25 张表 (users, partners, transactions, api_* ...)</text>
+  <text x="50" y="438" class="text">本地文件: backend/storage (证书、规格书等)</text>
+  <rect x="460" y="354" width="410" height="120" class="box-back"/>
+  <text x="480" y="378" class="text-bold">配置与扩展</text>
+  <text x="480" y="398" class="text">pydantic-settings: backend/.env (DATABASE_URL, AUTH_SECRET,</text>
+  <text x="480" y="418" class="text">CORS_ORIGINS, EMAIL_MODE, LOCAL_STORAGE_PATH...)</text>
+  <text x="480" y="438" class="text">可选: SMTP 邮件, ngrok 单域名暴露</text>
+  <path d="M 250 64 L 250 154" class="arrow"/>
+  <text x="255" y="112" class="text" font-size="9">HTTP</text>
+  <path d="M 440 234 L 460 234" class="arrow"/>
+  <text x="445" y="228" class="text" font-size="9">REST /v1/*</text>
+  <path d="M 665 314 L 665 354" class="arrow"/>
+  <text x="670" y="338" class="text" font-size="9">ORM</text>
+  <path d="M 250 314 L 250 354" class="arrow"/>
+  <text x="255" y="338" class="text" font-size="9">Session</text>
+  <rect x="30" y="500" width="840" height="100" fill="#fafbfc" stroke="#ddd" rx="4"/>
+  <text x="50" y="528" class="layer">图例</text>
+  <text x="50" y="550" class="text">前端: Next.js 提供页面与静态资源，并将 /v1/* 等代理到后端，实现同源或直连。</text>
+  <text x="50" y="568" class="text">后端: FastAPI 提供 REST API、OpenAPI 文档(/docs、/redoc)、认证与会话；生产可启用限流与 IP 白名单。</text>
+  <text x="50" y="586" class="text">数据: SQLAlchemy 访问关系库；Alembic 管理迁移；本地目录存储证书与规格文件。</text>
+</svg>

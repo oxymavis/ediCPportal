@@ -1,0 +1,41 @@
+%% EDI Portal 数据库 ER 图（简化 - 25 表及关系）
+%% 生成: npx @mermaid-js/mermaid-cli mmdc -i docs/ER-diagram-simple.mmd -o docs/ER-diagram.svg -b transparent
+
+erDiagram
+    users { string id PK }
+    sessions { string id PK }
+    email_verification_tokens { string token PK }
+    partners { string id PK }
+    subsidiaries { string id PK }
+    as2_profiles { string id PK }
+    certificates { int id PK }
+    transactions { string id PK }
+    transaction_links { int id PK }
+    notifications { int id PK }
+    unis_specifications { int id PK }
+    tp_specifications { string id PK }
+    integration_clients { string id PK }
+    api_clients { string client_id PK }
+    oauth_tokens { string jti PK }
+    api_call_logs { int id PK }
+    api_quotas { int id PK }
+    api_messages { string code PK }
+    api_message_schemas { int id PK }
+    api_message_samples { int id PK }
+    api_message_mappings { int id PK }
+    connection_test_runs { string id PK }
+    connection_test_steps { int id PK }
+    document_test_reports { string id PK }
+    validator_reports { string id PK }
+
+    users ||--o{ sessions : "user_id"
+    users ||--o{ email_verification_tokens : "user_id"
+    partners ||--o{ subsidiaries : "partner_id"
+    subsidiaries ||--o{ as2_profiles : "subsidiary_id"
+    transactions ||--o{ transaction_links : "from"
+    transactions ||--o{ transaction_links : "to"
+    api_clients ||--o{ oauth_tokens : "client_id"
+    api_messages ||--o{ api_message_schemas : "message_code"
+    api_messages ||--o{ api_message_samples : "message_code"
+    api_messages ||--o{ api_message_mappings : "message_code"
+    connection_test_runs ||--o{ connection_test_steps : "run_id"

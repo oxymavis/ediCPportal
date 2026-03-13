@@ -45,6 +45,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # keep health checks unrestricted
         if request.url.path in EXEMPT_PATHS:
             return await call_next(request)
+        # 开发环境关闭限流，避免 Dashboard 多请求触发 429
+        if getattr(settings, 'app_env', 'production') == 'development':
+            return await call_next(request)
 
         key = _client_ip(request) + ':' + request.url.path
         now = monotonic()

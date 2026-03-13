@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 396" width="1080" height="396">
+  <style>
+    .table-box { fill: #f0f4f8; stroke: #1565c0; stroke-width: 1.5; rx: 4; }
+    .table-title { font: bold 11px sans-serif; fill: #1565c0; }
+    .link { stroke: #666; stroke-width: 1; fill: none; }
+    .link-label { font: 9px sans-serif; fill: #333; }
+  </style>
+  <text x="40" y="40" class="table-title" font-size="14">EDI Portal 数据库 ER 图（25 张表）</text>
+  <path d="M 120 118 L 120 104.0 L 330 104.0 L 330 90" class="link"/>
+  <text x="225.0" y="102.0" text-anchor="middle" class="link-label">user_id</text>
+  <path d="M 120 118 L 120 104.0 L 540 104.0 L 540 90" class="link"/>
+  <text x="330.0" y="102.0" text-anchor="middle" class="link-label">user_id</text>
+  <path d="M 750 118 L 750 104.0 L 960 104.0 L 960 90" class="link"/>
+  <text x="855.0" y="102.0" text-anchor="middle" class="link-label">partner_id</text>
+  <path d="M 960 118 L 960 130.0 L 120 130.0 L 120 142" class="link"/>
+  <text x="540.0" y="128.0" text-anchor="middle" class="link-label">subsidiary_id</text>
+  <path d="M 540 170 L 540 156.0 L 750 156.0 L 750 142" class="link"/>
+  <text x="645.0" y="154.0" text-anchor="middle" class="link-label">from_transaction_id</text>
+  <path d="M 540 170 L 540 156.0 L 750 156.0 L 750 142" class="link"/>
+  <text x="645.0" y="154.0" text-anchor="middle" class="link-label">to_transaction_id</text>
+  <path d="M 750 222 L 750 208.0 L 960 208.0 L 960 194" class="link"/>
+  <text x="855.0" y="206.0" text-anchor="middle" class="link-label">client_id</text>
+  <path d="M 540 274 L 540 260.0 L 750 260.0 L 750 246" class="link"/>
+  <text x="645.0" y="258.0" text-anchor="middle" class="link-label">message_code</text>
+  <path d="M 540 274 L 540 260.0 L 960 260.0 L 960 246" class="link"/>
+  <text x="750.0" y="258.0" text-anchor="middle" class="link-label">message_code</text>
+  <path d="M 540 274 L 540 286.0 L 120 286.0 L 120 298" class="link"/>
+  <text x="330.0" y="284.0" text-anchor="middle" class="link-label">message_code</text>
+  <path d="M 330 326 L 330 312.0 L 540 312.0 L 540 298" class="link"/>
+  <text x="435.0" y="310.0" text-anchor="middle" class="link-label">run_id</text>
+  <rect x="40" y="90" width="160" height="28" class="table-box"/>
+  <text x="120.0" y="108.0" text-anchor="middle" class="table-title">users</text>
+  <rect x="250" y="90" width="160" height="28" class="table-box"/>
+  <text x="330.0" y="108.0" text-anchor="middle" class="table-title">sessions</text>
+  <rect x="460" y="90" width="160" height="28" class="table-box"/>
+  <text x="540.0" y="108.0" text-anchor="middle" class="table-title">email_verification_tokens</text>
+  <rect x="670" y="90" width="160" height="28" class="table-box"/>
+  <text x="750.0" y="108.0" text-anchor="middle" class="table-title">partners</text>
+  <rect x="880" y="90" width="160" height="28" class="table-box"/>
+  <text x="960.0" y="108.0" text-anchor="middle" class="table-title">subsidiaries</text>
+  <rect x="40" y="142" width="160" height="28" class="table-box"/>
+  <text x="120.0" y="160.0" text-anchor="middle" class="table-title">as2_profiles</text>
+  <rect x="250" y="142" width="160" height="28" class="table-box"/>
+  <text x="330.0" y="160.0" text-anchor="middle" class="table-title">certificates</text>
+  <rect x="460" y="142" width="160" height="28" class="table-box"/>
+  <text x="540.0" y="160.0" text-anchor="middle" class="table-title">transactions</text>
+  <rect x="670" y="142" width="160" height="28" class="table-box"/>
+  <text x="750.0" y="160.0" text-anchor="middle" class="table-title">transaction_links</text>
+  <rect x="880" y="142" width="160" height="28" class="table-box"/>
+  <text x="960.0" y="160.0" text-anchor="middle" class="table-title">notifications</text>
+  <rect x="40" y="194" width="160" height="28" class="table-box"/>
+  <text x="120.0" y="212.0" text-anchor="middle" class="table-title">unis_specifications</text>
+  <rect x="250" y="194" width="160" height="28" class="table-box"/>
+  <text x="330.0" y="212.0" text-anchor="middle" class="table-title">tp_specifications</text>
+  <rect x="460" y="194" width="160" height="28" class="table-box"/>
+  <text x="540.0" y="212.0" text-anchor="middle" class="table-title">integration_clients</text>
+  <rect x="670" y="194" width="160" height="28" class="table-box"/>
+  <text x="750.0" y="212.0" text-anchor="middle" class="table-title">api_clients</text>
+  <rect x="880" y="194" width="160" height="28" class="table-box"/>
+  <text x="960.0" y="212.0" text-anchor="middle" class="table-title">oauth_tokens</text>
+  <rect x="40" y="246" width="160" height="28" class="table-box"/>
+  <text x="120.0" y="264.0" text-anchor="middle" class="table-title">api_call_logs</text>
+  <rect x="250" y="246" width="160" height="28" class="table-box"/>
+  <text x="330.0" y="264.0" text-anchor="middle" class="table-title">api_quotas</text>
+  <rect x="460" y="246" width="160" height="28" class="table-box"/>
+  <text x="540.0" y="264.0" text-anchor="middle" class="table-title">api_messages</text>
+  <rect x="670" y="246" width="160" height="28" class="table-box"/>
+  <text x="750.0" y="264.0" text-anchor="middle" class="table-title">api_message_schemas</text>
+  <rect x="880" y="246" width="160" height="28" class="table-box"/>
+  <text x="960.0" y="264.0" text-anchor="middle" class="table-title">api_message_samples</text>
+  <rect x="40" y="298" width="160" height="28" class="table-box"/>
+  <text x="120.0" y="316.0" text-anchor="middle" class="table-title">api_message_mappings</text>
+  <rect x="250" y="298" width="160" height="28" class="table-box"/>
+  <text x="330.0" y="316.0" text-anchor="middle" class="table-title">connection_test_runs</text>
+  <rect x="460" y="298" width="160" height="28" class="table-box"/>
+  <text x="540.0" y="316.0" text-anchor="middle" class="table-title">connection_test_steps</text>
+  <rect x="670" y="298" width="160" height="28" class="table-box"/>
+  <text x="750.0" y="316.0" text-anchor="middle" class="table-title">document_test_reports</text>
+  <rect x="880" y="298" width="160" height="28" class="table-box"/>
+  <text x="960.0" y="316.0" text-anchor="middle" class="table-title">validator_reports</text>
+</svg>

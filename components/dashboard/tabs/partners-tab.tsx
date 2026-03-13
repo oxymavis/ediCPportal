@@ -431,6 +431,11 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
         <PartnerDetailModal
           partner={selectedPartner}
           subsidiary={selectedSubsidiary}
+          onSaved={(updated) => {
+            const mapped = apiPartnerToTradingPartner(updated)
+            setPartners((prev) => prev.map((p) => (p.id === mapped.id ? mapped : p)))
+            setSelectedPartner(mapped)
+          }}
           onClose={() => { setSelectedPartner(null); setSelectedSubsidiary(null) }}
         />
       )}

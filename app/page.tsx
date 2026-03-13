@@ -41,6 +41,12 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Demo account hint */}
+        <div className="text-center mt-6 p-3 rounded-lg bg-muted/50 border border-border">
+          <p className="text-xs font-medium text-foreground">演示账号（需后端已执行种子数据）</p>
+          <p className="text-xs text-muted-foreground mt-1">demo@example.com / DemoPass1</p>
+        </div>
+
         {/* Footer */}
         <div className="text-center mt-8">
           <p className="text-xs text-muted-foreground">Secure document exchange for modern businesses</p>

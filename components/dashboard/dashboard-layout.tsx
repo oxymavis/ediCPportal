@@ -1,21 +1,16 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useMemo, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import DashboardContent from "./dashboard-content"
 import SidebarNav from "./sidebar-nav"
 
 export default function DashboardLayout({ user }: { user: any }) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState("dashboard")
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [sidebarOpen, setSidebarOpen] = useState(true)
-
-  const handleLogout = () => {
-    localStorage.removeItem("user")
-    router.push("/")
-  }
-
   const tabTitles: Record<string, string> = {
     dashboard: "Dashboard",
     partners: "Trading Partners",
@@ -25,6 +20,34 @@ export default function DashboardLayout({ user }: { user: any }) {
     "connection-testing": "Connection Testing",
     transactions: "Transactions",
     notifications: "Notifications",
+  }
+  const validTabs = useMemo(() => new Set(Object.keys(tabTitles)), [])
+  const [activeTab, setActiveTabState] = useState(() => {
+    const initial = searchParams.get("tab") || "dashboard"
+    return validTabs.has(initial) ? initial : "dashboard"
+  })
+
+  const tabFromUrl = searchParams.get("tab") || "dashboard"
+  // 仅从 URL 同步到 state（如浏览器前进/后退或带 ?tab= 的链接），避免与 setActiveTab 形成循环
+  useEffect(() => {
+    const resolved = validTabs.has(tabFromUrl) ? tabFromUrl : "dashboard"
+    setActiveTabState((prev) => (prev !== resolved ? resolved : prev))
+  }, [tabFromUrl, validTabs])
+
+  // 用户点击切换 tab 时更新 URL，避免在 effect 里反向同步导致导航循环和屏闪
+  const setActiveTab = (tab: string) => {
+    const resolved = validTabs.has(tab) ? tab : "dashboard"
+    setActiveTabState(resolved)
+    const next = new URLSearchParams(searchParams.toString())
+    if (resolved === "dashboard") next.delete("tab")
+    else next.set("tab", resolved)
+    const qs = next.toString()
+    router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false })
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem("user")
+    router.push("/")
   }
 
   return (
