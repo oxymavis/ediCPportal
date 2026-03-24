@@ -93,3 +93,51 @@ flowchart LR
 2. **再部署腾讯云**：创建 TencentDB MySQL、TCR 仓库与 TKE 或 CVM、前端托管 → 配置 `DATABASE_URL`（TencentDB）、`NEXT_PUBLIC_API_BASE_URL`、`CORS_ORIGINS` 等 → 多实例时再接入 COS 并改 storage 与下载接口。
 
 以上为腾讯云版本的完整改动清单，不包含具体补丁；与 AWS 版的差异仅在「二、部署」使用的云产品与连接方式不同，MySQL 部分与 AWS 版一致。
+
+---
+
+## 四、CVM 日常发布（Git Pull + 短暂重启）
+
+适用场景：你在本地开发并推送到 GitHub，CVM 直接拉取最新代码并重启服务。
+
+### 1) 首次准备（只做一次）
+
+```bash
+cd ~/ediCPportal
+chmod +x scripts/deploy-cvm.sh
+```
+
+### 2) 每次发布
+
+本地先推送代码到 `main`，然后在 CVM 执行：
+
+```bash
+cd ~/ediCPportal
+bash scripts/deploy-cvm.sh
+```
+
+若需要发布其他分支（例如 `release`）：
+
+```bash
+cd ~/ediCPportal
+bash scripts/deploy-cvm.sh release
+```
+
+### 3) 发布内容（脚本内置）
+
+- `git fetch --all --prune` + `git reset --hard origin/<branch>`
+- 后端依赖安装、Alembic 迁移
+- 前端依赖安装与构建
+- `pm2 restart edi-backend --update-env`
+- `pm2 restart edi-frontend --update-env`
+- 健康检查：`/health` 与 `/api/health`
+
+### 4) 常用排障
+
+```bash
+pm2 status
+pm2 logs edi-backend --lines 80 --nostream
+pm2 logs edi-frontend --lines 80 --nostream
+curl -i http://127.0.0.1:8000/health
+curl -i http://127.0.0.1/api/health
+```
