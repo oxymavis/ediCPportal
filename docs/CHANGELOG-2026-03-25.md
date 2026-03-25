@@ -65,3 +65,12 @@ This log records the application changes completed on 2026-03-25 for developer s
 
 - `npx tsc --noEmit` passed after frontend and shared type changes.
 - Python test execution was not run in this environment because `pytest` is not installed locally.
+
+---
+
+## Infrastructure & documentation (same day follow-up)
+
+- Added **CVM 一键发布脚本** [`scripts/deploy-cvm.sh`](../scripts/deploy-cvm.sh)：在服务器上 `git fetch` + `reset --hard` 对齐远端分支、安装依赖、执行 Alembic、前端 `npm ci`/`build`、重启 `pm2`、本机健康检查。
+- 在 [`docs/DEPLOY-TENCENTCLOUD-MYSQL.md`](DEPLOY-TENCENTCLOUD-MYSQL.md) 增加 **「四、CVM 日常发布」** 说明与排障命令。
+- [`docs/EXTERNAL-DEVELOPER-GUIDE.md`](EXTERNAL-DEVELOPER-GUIDE.md) 已对齐 **生产 Base URL**（经 Nginx 的 `/api` 前缀）及 OpenAPI/Swagger/ReDoc 的完整 URL；**不再在文档中粘贴真实 client_secret**。
+- 新增本机辅助脚本 [`scripts/push-and-deploy-cvm.sh`](../scripts/push-and-deploy-cvm.sh)：`git push` 后通过 SSH 在 CVM 执行 `deploy-cvm.sh`（见脚本内环境变量说明）。

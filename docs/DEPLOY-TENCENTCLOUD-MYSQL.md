@@ -116,6 +116,16 @@ cd ~/ediCPportal
 bash scripts/deploy-cvm.sh
 ```
 
+可选：在 **本机 Mac** 一条命令完成「推送当前分支 + SSH 触发 CVM 部署」（需已配置 SSH 密钥，并设置 `CVM_HOST`）：
+
+```bash
+export CVM_HOST=你的CVM公网IP
+chmod +x scripts/push-and-deploy-cvm.sh
+./scripts/push-and-deploy-cvm.sh main
+```
+
+说明见 [scripts/push-and-deploy-cvm.sh](../scripts/push-and-deploy-cvm.sh) 文件头注释。
+
 若需要发布其他分支（例如 `release`）：
 
 ```bash
