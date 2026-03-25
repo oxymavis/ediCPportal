@@ -24,6 +24,7 @@ interface Certificate {
   type: string
   partner: string
   environment: "production" | "sandbox"
+  rawContent?: string | null
 }
 
 interface PartnerItem {
@@ -47,6 +48,7 @@ export default function CertificatesTab() {
   const [uploadType, setUploadType] = useState("X.509")
   const [uploadEnv, setUploadEnv] = useState<"production" | "sandbox">("production")
   const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadRawContent, setUploadRawContent] = useState("")
 
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -107,14 +109,15 @@ export default function CertificatesTab() {
   }
 
   const handleUpload = async () => {
-    if (!uploadFile || !uploadName.trim() || !uploadPartner.trim() || !uploadUsage.trim()) {
-      setUploadError("Please fill name, partner, usage and select a file.")
+    if ((!uploadFile && !uploadRawContent.trim()) || !uploadName.trim() || !uploadPartner.trim() || !uploadUsage.trim()) {
+      setUploadError("Please fill name, partner, usage and provide a file or raw certificate content.")
       return
     }
     setUploadError(null)
     setIsUploading(true)
     const res = await apiClient.uploadCertificate({
       file: uploadFile,
+      rawContent: uploadRawContent.trim() || undefined,
       name: uploadName.trim(),
       partner: uploadPartner.trim(),
       usage: uploadUsage.trim(),
@@ -129,6 +132,7 @@ export default function CertificatesTab() {
       setUploadPartner("")
       setUploadUsage("")
       setUploadFile(null)
+      setUploadRawContent("")
       return
     }
     setUploadError(res.error || "Upload failed")
@@ -248,7 +252,19 @@ export default function CertificatesTab() {
 
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Certificate File *</label>
-            <Input type="file" accept=".pem,.cer,.crt,.pfx,.p12" disabled={isUploading} className="cursor-pointer" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} />
+            <Input type="file" accept=".pem,.cer,.crt,.cert,.pfx,.p12" disabled={isUploading} className="cursor-pointer" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">Certificate PEM / Base64 Content</label>
+            <textarea
+              value={uploadRawContent}
+              onChange={(e) => setUploadRawContent(e.target.value)}
+              disabled={isUploading}
+              placeholder="-----BEGIN CERTIFICATE-----&#10;MIID...&#10;-----END CERTIFICATE-----"
+              className="min-h-40 w-full rounded-md border border-input bg-background p-3 text-xs font-mono"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">You can upload a file, paste raw PEM/Base64 content, or provide both.</p>
           </div>
 
           <div>

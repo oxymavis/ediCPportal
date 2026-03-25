@@ -20,6 +20,8 @@ const STEP_LABELS = [
   "Review",
 ]
 
+const AS2_QUALIFIER_OPTIONS = [...Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, "0")), "ZZ"]
+
 /** Normalize backend partner response to TradingPartner shape for list display */
 function normalizePartnerFromApi(p: any): any {
   const lifecycle = p.lifecycle || {}
@@ -27,6 +29,18 @@ function normalizePartnerFromApi(p: any): any {
   const channelObj = typeof channel === "string"
     ? { type: channel, status: "configured" as const, config: p.apiConfig || {} }
     : channel
+  const subsidiaries = (p.subsidiaries ?? []).map((s: any) => ({
+    ...s,
+    as2Profiles: (s.as2Profiles ?? []).map((a: any) => ({
+      ...a,
+      url: a.as2Url ?? a.url ?? "",
+      as2Port: a.as2Port,
+      senderId: a.senderId,
+      senderQualifier: a.senderQualifier,
+      receiverId: a.receiverId,
+      receiverQualifier: a.receiverQualifier,
+    })),
+  }))
   return {
     id: p.id,
     name: p.name,
@@ -40,9 +54,9 @@ function normalizePartnerFromApi(p: any): any {
     currentStepId: lifecycle.currentStepId ?? 1,
     onboardingStartDate: lifecycle.onboardingStartDate ?? new Date().toISOString().split("T")[0],
     stepCompletionDates: lifecycle.stepCompletionDates ?? {},
-    subsidiaries: p.subsidiaries ?? [],
-    as2Profiles: (p.subsidiaries ?? []).flatMap((s: any) => s.as2Profiles ?? []),
-    documentTypes: (p.subsidiaries ?? [])[0]?.supportedDocTypes?.x12 ?? [],
+    subsidiaries,
+    as2Profiles: subsidiaries.flatMap((s: any) => s.as2Profiles ?? []),
+    documentTypes: subsidiaries[0]?.supportedDocTypes?.x12 ?? [],
     lastSync: "--",
     transactionCount: 0,
   }
@@ -65,6 +79,11 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
     channelType: "AS2" as "AS2" | "SFTP" | "VAN",
     as2Id: "",
     as2Url: "",
+    as2Port: "443",
+    senderId: "",
+    senderQualifier: "ZZ",
+    receiverId: "",
+    receiverQualifier: "ZZ",
     encryptionCert: "",
     signingCert: "",
     sftpHost: "",
@@ -139,6 +158,11 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
             name: `${formData.name} Primary`,
             as2Id: formData.as2Id,
             as2Url: formData.as2Url,
+            as2Port: Number(formData.as2Port),
+            senderId: formData.senderId.trim(),
+            senderQualifier: formData.senderQualifier,
+            receiverId: formData.receiverId.trim(),
+            receiverQualifier: formData.receiverQualifier,
             status: "active",
             encryptionCert: formData.encryptionCert || undefined,
             signingCert: formData.signingCert || undefined,
@@ -186,7 +210,7 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
       case 2: return formData.integrationType !== ""
       case 3:
         if (formData.integrationType === "edi") {
-          if (formData.channelType === "AS2") return formData.as2Id && formData.as2Url
+          if (formData.channelType === "AS2") return formData.as2Id && formData.as2Url && formData.as2Port && formData.senderId && formData.receiverId
           if (formData.channelType === "SFTP") return formData.sftpHost && formData.sftpUser
           return formData.vanProvider
         }
@@ -366,6 +390,36 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
+                      <Label htmlFor="as2Port">Port *</Label>
+                      <Input id="as2Port" placeholder="443" value={formData.as2Port} onChange={e => setFormData(p => ({ ...p, as2Port: e.target.value }))} className="font-mono" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="senderId">Sender ID *</Label>
+                      <Input id="senderId" placeholder="UNIS-SENDER" value={formData.senderId} onChange={e => setFormData(p => ({ ...p, senderId: e.target.value }))} className="font-mono" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="senderQualifier">Qualifier *</Label>
+                      <select id="senderQualifier" value={formData.senderQualifier} onChange={e => setFormData(p => ({ ...p, senderQualifier: e.target.value }))} className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground">
+                        {AS2_QUALIFIER_OPTIONS.map(q => <option key={q} value={q}>{q}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="receiverId">Receiver ID *</Label>
+                      <Input id="receiverId" placeholder="PARTNER-RECEIVER" value={formData.receiverId} onChange={e => setFormData(p => ({ ...p, receiverId: e.target.value }))} className="font-mono" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="receiverQualifier">Qualifier *</Label>
+                      <select id="receiverQualifier" value={formData.receiverQualifier} onChange={e => setFormData(p => ({ ...p, receiverQualifier: e.target.value }))} className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground">
+                        {AS2_QUALIFIER_OPTIONS.map(q => <option key={q} value={q}>{q}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
                       <Label>Encryption Certificate</Label>
                       <Input placeholder="partner-enc.cer" value={formData.encryptionCert} onChange={e => setFormData(p => ({ ...p, encryptionCert: e.target.value }))} />
                     </div>
@@ -503,6 +557,12 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
                     <span className="font-mono text-foreground">{formData.as2Id}</span>
                     <span className="text-muted-foreground">Endpoint:</span>
                     <span className="text-foreground truncate">{formData.as2Url}</span>
+                    <span className="text-muted-foreground">Port:</span>
+                    <span className="font-mono text-foreground">{formData.as2Port}</span>
+                    <span className="text-muted-foreground">Sender ID:</span>
+                    <span className="font-mono text-foreground">{formData.senderId} ({formData.senderQualifier})</span>
+                    <span className="text-muted-foreground">Receiver ID:</span>
+                    <span className="font-mono text-foreground">{formData.receiverId} ({formData.receiverQualifier})</span>
                   </div>
                 )}
                 {formData.integrationType === "api" && (

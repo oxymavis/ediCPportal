@@ -15,11 +15,11 @@ from app.models import Certificate
 from app.schemas.common import fail, ok
 from app.services.deps import get_actor, require_csrf, require_scope
 from app.services.mappers import certificate_to_api
-from app.services.storage import resolve_relative_path, save_binary_file
+from app.services.storage import resolve_relative_path, save_binary_file, save_text_file
 
 router = APIRouter(prefix='/v1/certificates', tags=['certificates'], dependencies=[Depends(get_actor), Depends(require_scope('certificates'))])
 
-ALLOWED_CERT_EXTENSIONS = {'.pem', '.cer', '.crt', '.pfx', '.p12'}
+ALLOWED_CERT_EXTENSIONS = {'.pem', '.cer', '.crt', '.cert', '.pfx', '.p12'}
 
 
 def compute_status(expires: str) -> str:
@@ -137,11 +137,13 @@ async def create_certificate(
     usage: str | None = Form(default=None),
     type: str = Form(default='X.509'),
     environment: str = Form(default='production'),
+    rawContent: str | None = Form(default=None),
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
 ):
     file_bytes = b''
     stored_path: str | None = None
+    normalized_raw_content = (rawContent or '').strip() or None
     if file is not None:
         original_filename = file.filename or 'certificate.bin'
         filename = original_filename.lower()
@@ -149,9 +151,19 @@ async def create_certificate(
             return fail('Unsupported certificate format', 'CERT_INVALID_FILE')
         file_bytes = await file.read()
         stored_path = save_binary_file(file_bytes, 'certificates', original_filename)
+        if normalized_raw_content is None:
+            try:
+                normalized_raw_content = file_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                normalized_raw_content = None
+    elif normalized_raw_content is not None:
+        file_bytes = normalized_raw_content.encode('utf-8')
+        stored_path = save_text_file(normalized_raw_content, 'certificates', f'{(name or "certificate").replace(" ", "_")}.pem')
 
     if not name or not partner or not usage:
         return fail('Missing required fields: name, partner, usage', 'CERT_VALIDATION')
+    if not file_bytes and not normalized_raw_content:
+        return fail('Certificate file or rawContent is required', 'CERT_VALIDATION')
 
     now = datetime.utcnow().strftime('%Y-%m-%d')
     expires = (datetime.utcnow() + timedelta(days=365)).strftime('%Y-%m-%d')
@@ -177,6 +189,7 @@ async def create_certificate(
         usage=usage,
         type=type,
         environment=environment,
+        raw_content=normalized_raw_content,
         file_path=stored_path,
         serial_number=metadata['serial_number'],
         fingerprint=metadata['fingerprint'],
@@ -233,6 +246,7 @@ def update_certificate(
         ('status', 'status'),
         ('partner', 'partner'),
         ('environment', 'environment'),
+        ('rawContent', 'raw_content'),
     ]:
         if payload.get(field) is not None:
             setattr(cert, attr, payload[field])

@@ -7,6 +7,7 @@ import { apiClient } from "@/lib/api-client"
 
 export default function CertificateModal({ cert, onClose }: { cert: any; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
+  const [copiedRaw, setCopiedRaw] = useState(false)
   const [downloading, setDownloading] = useState(false)
 
   const copyToClipboard = () => {
@@ -15,10 +16,30 @@ export default function CertificateModal({ cert, onClose }: { cert: any; onClose
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const copyRawToClipboard = () => {
+    if (!cert.rawContent) return
+    navigator.clipboard.writeText(cert.rawContent)
+    setCopiedRaw(true)
+    setTimeout(() => setCopiedRaw(false), 2000)
+  }
+
   const handleDownload = async () => {
     setDownloading(true)
     await apiClient.downloadCertificate(cert.id)
     setDownloading(false)
+  }
+
+  const handleDownloadRawPem = () => {
+    if (!cert.rawContent) return
+    const blob = new Blob([cert.rawContent], { type: "application/x-pem-file" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `${String(cert.name || "certificate").replace(/\s+/g, "_")}.pem`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -92,12 +113,30 @@ export default function CertificateModal({ cert, onClose }: { cert: any; onClose
 
           {/* Raw Certificate Data */}
           <div>
-            <h3 className="font-semibold text-foreground mb-3">Raw Certificate (PEM Format)</h3>
-            <div className="p-4 bg-secondary/50 rounded-lg">
-              <p className="text-xs text-muted-foreground">
-                Certificate binary is stored in backend storage. Click Download Certificate to view full PEM/DER content.
-              </p>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="font-semibold text-foreground">Raw Certificate (PEM Format)</h3>
+              {cert.rawContent && (
+                <div className="flex gap-2">
+                  <Button variant="outline" className="bg-transparent" onClick={copyRawToClipboard}>
+                    {copiedRaw ? "Copied" : "Copy PEM"}
+                  </Button>
+                  <Button variant="outline" className="bg-transparent" onClick={handleDownloadRawPem}>
+                    Download PEM
+                  </Button>
+                </div>
+              )}
             </div>
+            {cert.rawContent ? (
+              <pre className="max-h-80 overflow-auto rounded-lg bg-secondary/50 p-4 text-xs font-mono text-foreground whitespace-pre-wrap break-all">
+                {cert.rawContent}
+              </pre>
+            ) : (
+              <div className="p-4 bg-secondary/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">
+                  Certificate binary is stored in backend storage. Click Download Certificate to view full PEM/DER content.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Actions */}

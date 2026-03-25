@@ -84,6 +84,33 @@ async def lifespan(_app: FastAPI):
                 with engine.begin() as conn:
                     for stmt in alters:
                         conn.execute(text(stmt))
+        if 'api_clients' in inspector.get_table_names():
+            columns = {c['name'] for c in inspector.get_columns('api_clients')}
+            if 'owner_user_id' not in columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE api_clients ADD COLUMN owner_user_id VARCHAR(64)"))
+        if 'as2_profiles' in inspector.get_table_names():
+            columns = {c['name'] for c in inspector.get_columns('as2_profiles')}
+            alters = []
+            if 'as2_port' not in columns:
+                alters.append("ALTER TABLE as2_profiles ADD COLUMN as2_port INTEGER DEFAULT 443")
+            if 'sender_id' not in columns:
+                alters.append("ALTER TABLE as2_profiles ADD COLUMN sender_id VARCHAR(64) DEFAULT ''")
+            if 'sender_qualifier' not in columns:
+                alters.append("ALTER TABLE as2_profiles ADD COLUMN sender_qualifier VARCHAR(8) DEFAULT 'ZZ'")
+            if 'receiver_id' not in columns:
+                alters.append("ALTER TABLE as2_profiles ADD COLUMN receiver_id VARCHAR(64) DEFAULT ''")
+            if 'receiver_qualifier' not in columns:
+                alters.append("ALTER TABLE as2_profiles ADD COLUMN receiver_qualifier VARCHAR(8) DEFAULT 'ZZ'")
+            if alters:
+                with engine.begin() as conn:
+                    for stmt in alters:
+                        conn.execute(text(stmt))
+        if 'certificates' in inspector.get_table_names():
+            columns = {c['name'] for c in inspector.get_columns('certificates')}
+            if 'raw_content' not in columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE certificates ADD COLUMN raw_content TEXT"))
     if settings.auto_seed:
         db = SessionLocal()
         try:

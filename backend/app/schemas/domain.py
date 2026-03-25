@@ -13,6 +13,11 @@ class AS2ProfileSchema(BaseModel):
     name: str
     as2Id: str
     as2Url: str
+    as2Port: int
+    senderId: str
+    senderQualifier: str
+    receiverId: str
+    receiverQualifier: str
     status: str
     encryptionCert: str | None = None
     signingCert: str | None = None
@@ -61,6 +66,7 @@ class CertificateSchema(BaseModel):
     status: str
     partner: str
     environment: str
+    rawContent: str | None = None
 
 
 class TransactionSchema(BaseModel):

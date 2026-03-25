@@ -6,6 +6,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useRouter } from "next/navigation"
+import { apiClient } from "@/lib/api-client"
 
 export default function RegisterForm() {
   const router = useRouter()
@@ -35,19 +36,19 @@ export default function RegisterForm() {
     setIsLoading(true)
 
     try {
-      // Simulate registration
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // Store demo credentials
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          email: formData.email,
-          name: formData.name,
-        }),
-      )
+      const res = await apiClient.register({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+        confirmPassword: formData.confirmPassword,
+      })
+      if (!res.success || !res.data?.user) {
+        setError(res.error || "Registration failed. Please try again.")
+        return
+      }
+      localStorage.setItem("user", JSON.stringify({ email: res.data.user.email, name: res.data.user.name }))
       router.push("/dashboard")
-    } catch (err) {
+    } catch {
       setError("Registration failed. Please try again.")
     } finally {
       setIsLoading(false)

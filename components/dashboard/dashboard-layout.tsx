@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { apiClient } from "@/lib/api-client"
 import DashboardContent from "./dashboard-content"
 import SidebarNav from "./sidebar-nav"
 
@@ -13,6 +14,7 @@ export default function DashboardLayout({ user }: { user: any }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const tabTitles: Record<string, string> = {
     dashboard: "Dashboard",
+    "developer-apps": "Developer Apps",
     partners: "Trading Partners",
     certificates: "Certificates",
     specifications: "Message Specifications",
@@ -45,7 +47,8 @@ export default function DashboardLayout({ user }: { user: any }) {
     router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false })
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await apiClient.logout()
     localStorage.removeItem("user")
     router.push("/")
   }

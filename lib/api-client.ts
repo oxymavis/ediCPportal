@@ -115,6 +115,26 @@ export const apiClient = {
   },
 
   // Auth (login does not send CSRF; session/cookie set by backend)
+  async register(payload: { name: string; email: string; password: string; confirmPassword: string; rememberMe?: boolean }): Promise<ApiResponse<{ user: { id: string; name: string; email: string; emailVerified?: boolean } }>> {
+    try {
+      const response = await fetch(`${API_BASE}/v1/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...payload,
+          email: payload.email.trim().toLowerCase(),
+          rememberMe: payload.rememberMe ?? false,
+        }),
+        credentials: "include",
+      })
+      const json = await response.json()
+      if (!response.ok) return { success: false, error: json?.error || "Registration failed", code: json?.code }
+      return json
+    } catch {
+      return { success: false, error: "Network error" }
+    }
+  },
+
   async login(email: string, password: string): Promise<ApiResponse<{ user: { id: string; name: string; email: string; emailVerified?: boolean } }>> {
     try {
       const response = await fetch(`${API_BASE}/v1/auth/login`, {
@@ -133,6 +153,13 @@ export const apiClient = {
 
   async getMe(): Promise<ApiResponse<{ user: { id: string; name: string; email: string; emailVerified?: boolean } }>> {
     return request("/v1/auth/me")
+  },
+
+  logout() {
+    return request<{ loggedOut: boolean }>("/v1/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({}),
+    })
   },
 
   // Partners
@@ -174,7 +201,8 @@ export const apiClient = {
   },
 
   uploadCertificate(form: {
-    file: File
+    file: File | null
+    rawContent?: string
     name: string
     partner: string
     usage: string
@@ -182,12 +210,13 @@ export const apiClient = {
     environment: string
   }) {
     const formData = new FormData()
-    formData.append("file", form.file)
+    if (form.file) formData.append("file", form.file)
     formData.append("name", form.name)
     formData.append("partner", form.partner)
     formData.append("usage", form.usage)
     formData.append("type", form.type)
     formData.append("environment", form.environment)
+    if (form.rawContent?.trim()) formData.append("rawContent", form.rawContent)
     return request<any>("/v1/certificates", { method: "POST", body: formData })
   },
 
@@ -259,6 +288,31 @@ export const apiClient = {
   // Dashboard
   getVersion() {
     return request<{ version: string; name: string }>("/v1/meta/version")
+  },
+
+  getMyOauthClients() {
+    return request<Array<{ client_id: string; name: string; status: string; scopes: string[]; environment: string; created_at?: string | null; last_used_at?: string | null }>>("/v1/oauth/my/clients")
+  },
+
+  createMyOauthClient(payload: { name: string; scopes: string[]; environment: "production" | "sandbox" | "all" }) {
+    return request<{ client_id: string; client_secret: string; scopes: string[]; environment: string }>("/v1/oauth/my/clients", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  rotateMyOauthClientSecret(clientId: string) {
+    return request<{ client_id: string; client_secret: string; rotated: boolean }>(`/v1/oauth/my/clients/${clientId}/rotate-secret`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    })
+  },
+
+  updateMyOauthClientStatus(clientId: string, status: "active" | "disabled") {
+    return request<{ client_id: string; status: string }>(`/v1/oauth/my/clients/${clientId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    })
   },
 
   updateNotification(id: number | string, data: any) {
@@ -355,6 +409,26 @@ export const apiClient = {
 
   updateSubsidiaryRouting(partnerId: string, subsidiaryId: string, payload: Record<string, unknown>) {
     return request<any>(`/v1/partners/${partnerId}/subsidiaries/${subsidiaryId}/routing`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  updateAs2Profile(
+    partnerId: string,
+    subsidiaryId: string,
+    profileId: string,
+    payload: {
+      name?: string
+      as2Url?: string
+      as2Port: number
+      senderId: string
+      senderQualifier: string
+      receiverId: string
+      receiverQualifier: string
+    },
+  ) {
+    return request<any>(`/v1/partners/${partnerId}/subsidiaries/${subsidiaryId}/as2-profiles/${profileId}`, {
       method: "PUT",
       body: JSON.stringify(payload),
     })

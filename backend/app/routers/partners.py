@@ -16,6 +16,7 @@ router = APIRouter(prefix='/v1/partners', tags=['partners'], dependencies=[Depen
 
 ALLOWED_INTEGRATION_TYPES = {'edi', 'api'}
 ALLOWED_CHANNELS = {'AS2', 'SFTP', 'VAN', 'REST_API', 'WEBHOOK'}
+ALLOWED_AS2_QUALIFIERS = {f'{x:02d}' for x in range(1, 34)} | {'ZZ'}
 
 
 def _validate_api_config(payload: dict | None) -> tuple[bool, str | None]:
@@ -28,6 +29,53 @@ def _validate_api_config(payload: dict | None) -> tuple[bool, str | None]:
     if auth_method and auth_method not in {'Bearer Token', 'API Key', 'OAuth 2.0'}:
         return False, 'apiConfig.authMethod must be one of Bearer Token/API Key/OAuth 2.0'
     return True, None
+
+
+def _validate_as2_profile(profile: dict) -> tuple[bool, str | None]:
+    port = profile.get('as2Port')
+    sender_id = str(profile.get('senderId') or '').strip()
+    receiver_id = str(profile.get('receiverId') or '').strip()
+    sender_qualifier = str(profile.get('senderQualifier') or '').strip().upper()
+    receiver_qualifier = str(profile.get('receiverQualifier') or '').strip().upper()
+
+    if port in (None, ''):
+        return False, 'AS2 port is required'
+    try:
+        parsed_port = int(port)
+    except (TypeError, ValueError):
+        return False, 'AS2 port must be an integer'
+    if parsed_port <= 0 or parsed_port > 65535:
+        return False, 'AS2 port must be between 1 and 65535'
+    if not sender_id:
+        return False, 'AS2 senderId is required'
+    if not receiver_id:
+        return False, 'AS2 receiverId is required'
+    if sender_qualifier not in ALLOWED_AS2_QUALIFIERS:
+        return False, 'AS2 senderQualifier must be one of 01-33 or ZZ'
+    if receiver_qualifier not in ALLOWED_AS2_QUALIFIERS:
+        return False, 'AS2 receiverQualifier must be one of 01-33 or ZZ'
+    return True, None
+
+
+def _serialize_as2_profile(profile: AS2Profile) -> dict:
+    return {
+        'id': profile.id,
+        'name': profile.name,
+        'as2Id': profile.as2_id,
+        'as2Url': profile.as2_url,
+        'as2Port': profile.as2_port,
+        'senderId': profile.sender_id,
+        'senderQualifier': profile.sender_qualifier,
+        'receiverId': profile.receiver_id,
+        'receiverQualifier': profile.receiver_qualifier,
+        'status': profile.status,
+        'encryptionCert': profile.encryption_cert,
+        'signingCert': profile.signing_cert,
+        'mdnRequired': profile.mdn_required,
+        'mdnSigned': profile.mdn_signed,
+        'encryptionAlgorithm': profile.encryption_algorithm,
+        'signatureAlgorithm': profile.signature_algorithm,
+    }
 
 
 @router.get('')
@@ -71,6 +119,11 @@ def create_partner(payload: dict, _csrf: None = Depends(require_csrf), db: Sessi
     valid_cfg, cfg_err = _validate_api_config(payload.get('apiConfig'))
     if not valid_cfg:
         return fail(cfg_err or 'Invalid apiConfig', 'PARTNER_VALIDATION')
+    for s in payload.get('subsidiaries', []):
+        for a in s.get('as2Profiles', []):
+            valid_as2, as2_err = _validate_as2_profile(a)
+            if not valid_as2:
+                return fail(as2_err or 'Invalid AS2 profile', 'PARTNER_VALIDATION')
 
     current_step_id = int(payload.get('currentStepId') or 1)
     current_step_id = max(1, min(5, current_step_id))
@@ -114,6 +167,11 @@ def create_partner(payload: dict, _csrf: None = Depends(require_csrf), db: Sessi
                     name=a.get('name', ''),
                     as2_id=a.get('as2Id', ''),
                     as2_url=a.get('as2Url', ''),
+                    as2_port=int(a.get('as2Port') or 443),
+                    sender_id=a.get('senderId', ''),
+                    sender_qualifier=(a.get('senderQualifier') or 'ZZ').upper(),
+                    receiver_id=a.get('receiverId', ''),
+                    receiver_qualifier=(a.get('receiverQualifier') or 'ZZ').upper(),
                     status=a.get('status', 'active'),
                     encryption_cert=a.get('encryptionCert'),
                     signing_cert=a.get('signingCert'),
@@ -274,6 +332,51 @@ def update_subsidiary_routing(
     db.commit()
     db.refresh(sub)
     return ok(sub.message_routing)
+
+
+@router.put('/{partner_id}/subsidiaries/{subsidiary_id}/as2-profiles/{profile_id}')
+def update_as2_profile(
+    partner_id: str,
+    subsidiary_id: str,
+    profile_id: str,
+    payload: dict,
+    _csrf: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+):
+    profile = (
+        db.query(AS2Profile)
+        .join(Subsidiary, Subsidiary.id == AS2Profile.subsidiary_id)
+        .join(Partner, Partner.id == Subsidiary.partner_id)
+        .filter(Partner.id == partner_id, Subsidiary.id == subsidiary_id, AS2Profile.id == profile_id)
+        .first()
+    )
+    if not profile:
+        return fail('AS2 profile not found', 'AS2_PROFILE_NOT_FOUND')
+
+    merged = {
+        'as2Port': payload.get('as2Port', profile.as2_port),
+        'senderId': payload.get('senderId', profile.sender_id),
+        'senderQualifier': payload.get('senderQualifier', profile.sender_qualifier),
+        'receiverId': payload.get('receiverId', profile.receiver_id),
+        'receiverQualifier': payload.get('receiverQualifier', profile.receiver_qualifier),
+    }
+    valid_as2, as2_err = _validate_as2_profile(merged)
+    if not valid_as2:
+        return fail(as2_err or 'Invalid AS2 profile', 'PARTNER_VALIDATION')
+
+    if payload.get('name') is not None:
+        profile.name = str(payload.get('name') or '').strip() or profile.name
+    if payload.get('as2Url') is not None:
+        profile.as2_url = str(payload.get('as2Url') or '').strip()
+    profile.as2_port = int(merged['as2Port'])
+    profile.sender_id = str(merged['senderId']).strip()
+    profile.sender_qualifier = str(merged['senderQualifier']).strip().upper()
+    profile.receiver_id = str(merged['receiverId']).strip()
+    profile.receiver_qualifier = str(merged['receiverQualifier']).strip().upper()
+
+    db.commit()
+    db.refresh(profile)
+    return ok(_serialize_as2_profile(profile))
 
 
 @router.delete('/{partner_id}')

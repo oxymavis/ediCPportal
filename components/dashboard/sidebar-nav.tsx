@@ -9,6 +9,7 @@ export default function SidebarNav({
 }) {
   const navItems = [
     { id: "dashboard", label: "Dashboard" },
+    { id: "developer-apps", label: "Developer Apps" },
     { id: "partners", label: "Trading Partners" },
     { id: "certificates", label: "Certificates" },
     { id: "specifications", label: "Message Specifications" },

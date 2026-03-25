@@ -12,6 +12,7 @@ interface AS2ProfileRow {
   name: string
   as2Id: string
   as2Url: string
+  as2Port?: number
   status?: string
 }
 
@@ -127,7 +128,7 @@ export default function ConnectionTestingTab() {
     const primary = selectedPartner.subsidiaries?.flatMap((s) => s.as2Profiles || [])[0]
     const parsed = parseHostPort(primary?.as2Url)
     setHost(parsed.host)
-    setPort(String(parsed.port || 443))
+    setPort(String(primary?.as2Port || parsed.port || 443))
     setAs2Id(primary?.as2Id || `${selectedPartner.code}-AS2`)
   }, [selectedPartner])
 

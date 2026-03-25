@@ -42,6 +42,11 @@ def partner_to_api(p: Partner) -> dict:
                         'name': a.name,
                         'as2Id': a.as2_id,
                         'as2Url': a.as2_url,
+                        'as2Port': a.as2_port,
+                        'senderId': a.sender_id,
+                        'senderQualifier': a.sender_qualifier,
+                        'receiverId': a.receiver_id,
+                        'receiverQualifier': a.receiver_qualifier,
                         'status': a.status,
                         'encryptionCert': a.encryption_cert,
                         'signingCert': a.signing_cert,
@@ -77,6 +82,7 @@ def certificate_to_api(c: Certificate) -> dict:
         'status': c.status,
         'partner': c.partner,
         'environment': c.environment,
+        'rawContent': c.raw_content,
         'filePath': c.file_path,
     }
 

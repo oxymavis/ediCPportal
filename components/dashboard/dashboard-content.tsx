@@ -1,6 +1,7 @@
 "use client"
 
 import OverviewTab from "./tabs/overview-tab"
+import DeveloperAppsTab from "./tabs/developer-apps-tab"
 import CertificatesTab from "./tabs/certificates-tab"
 import TransactionsTab from "./tabs/transactions-tab"
 import PartnersTab from "./tabs/partners-tab"
@@ -19,6 +20,8 @@ export default function DashboardContent({ activeTab, onNavigate }: DashboardCon
     switch (activeTab) {
       case "dashboard":
         return <OverviewTab onNavigate={onNavigate} />
+      case "developer-apps":
+        return <DeveloperAppsTab />
       case "partners":
         return <PartnersTab onNavigate={onNavigate} />
       case "certificates":

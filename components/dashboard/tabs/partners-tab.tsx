@@ -14,9 +14,19 @@ interface AS2Profile {
   name: string
   as2Id: string
   url: string
+  as2Port?: number
+  senderId?: string
+  senderQualifier?: string
+  receiverId?: string
+  receiverQualifier?: string
   encryptionCert?: string
   signingCert?: string
   status: "active" | "inactive"
+}
+
+function formatAs2Route(profile: AS2Profile) {
+  const port = profile.as2Port ? `:${profile.as2Port}` : ""
+  return `${profile.senderQualifier || "ZZ"}:${profile.senderId || "-"} -> ${profile.receiverQualifier || "ZZ"}:${profile.receiverId || "-"}${port}`
 }
 
 interface Subsidiary {
@@ -73,6 +83,11 @@ function apiPartnerToTradingPartner(p: any): TradingPartner {
       name: a.name,
       as2Id: a.as2Id,
       url: a.as2Url ?? a.url ?? "",
+      as2Port: a.as2Port,
+      senderId: a.senderId,
+      senderQualifier: a.senderQualifier,
+      receiverId: a.receiverId,
+      receiverQualifier: a.receiverQualifier,
       encryptionCert: a.encryptionCert,
       signingCert: a.signingCert,
       status: a.status ?? "active",
@@ -356,9 +371,14 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
                           <div className="mt-2 ml-9">
                             <div className="flex flex-wrap gap-2">
                               {subsidiary.as2Profiles.map((profile) => (
-                                <div key={profile.id} className={`px-3 py-1.5 rounded-lg border text-xs ${profile.status === "active" ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200"}`}>
-                                  <span className="font-semibold text-foreground">{profile.name}</span>
-                                  <span className="text-muted-foreground ml-2 font-mono">{profile.as2Id}</span>
+                                <div key={profile.id} className={`px-3 py-2 rounded-lg border text-xs ${profile.status === "active" ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200"}`}>
+                                  <div>
+                                    <span className="font-semibold text-foreground">{profile.name}</span>
+                                    <span className="text-muted-foreground ml-2 font-mono">{profile.as2Id}</span>
+                                  </div>
+                                  <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+                                    {formatAs2Route(profile)}
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -392,6 +412,9 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
                       <div className="font-semibold text-foreground text-sm">{profile.name}</div>
                       <div className="font-mono text-xs text-muted-foreground mt-1">{profile.as2Id}</div>
                       <div className="text-xs text-muted-foreground mt-1 truncate max-w-xs">{profile.url}</div>
+                      <div className="font-mono text-[11px] text-muted-foreground mt-2">
+                        {formatAs2Route(profile)}
+                      </div>
                     </div>
                   ))}
                 </div>

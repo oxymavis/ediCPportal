@@ -8,14 +8,26 @@ import MessageRoutingModal from "./message-routing-modal"
 import PartnerSpecificationsTab from "../partner-specifications-tab"
 import { apiClient } from "@/lib/api-client"
 
+const AS2_QUALIFIER_OPTIONS = [...Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, "0")), "ZZ"]
+
 interface AS2Profile {
   id: string
   name: string
   as2Id: string
   url: string
+  as2Port?: number
+  senderId?: string
+  senderQualifier?: string
+  receiverId?: string
+  receiverQualifier?: string
   encryptionCert?: string
   signingCert?: string
   status: "active" | "inactive"
+}
+
+function formatAs2Route(profile: AS2Profile) {
+  const port = profile.as2Port ? `:${profile.as2Port}` : ""
+  return `${profile.senderQualifier || "ZZ"}:${profile.senderId || "-"} -> ${profile.receiverQualifier || "ZZ"}:${profile.receiverId || "-"}${port}`
 }
 
 interface Subsidiary {
@@ -67,6 +79,18 @@ export default function PartnerDetailModal({
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [editingAs2, setEditingAs2] = useState(false)
+  const [as2Saving, setAs2Saving] = useState(false)
+  const [as2Error, setAs2Error] = useState<string | null>(null)
+  const [showUploadCertificate, setShowUploadCertificate] = useState(false)
+  const [uploadingCertificate, setUploadingCertificate] = useState(false)
+  const [uploadCertificateError, setUploadCertificateError] = useState<string | null>(null)
+  const [uploadCertificateName, setUploadCertificateName] = useState("")
+  const [uploadCertificateUsage, setUploadCertificateUsage] = useState("")
+  const [uploadCertificateType, setUploadCertificateType] = useState("X.509")
+  const [uploadCertificateEnv, setUploadCertificateEnv] = useState<"production" | "sandbox">("production")
+  const [uploadCertificateFile, setUploadCertificateFile] = useState<File | null>(null)
+  const [uploadCertificateRawContent, setUploadCertificateRawContent] = useState("")
   const [certs, setCerts] = useState<CertificateLite[]>([])
   const [form, setForm] = useState({
     name: partner.name,
@@ -74,6 +98,15 @@ export default function PartnerDetailModal({
     status: partner.status as "active" | "inactive",
     type: partner.type,
     tier: partner.tier,
+  })
+  const [as2Form, setAs2Form] = useState({
+    name: "",
+    as2Url: "",
+    as2Port: "443",
+    senderId: "",
+    senderQualifier: "ZZ",
+    receiverId: "",
+    receiverQualifier: "ZZ",
   })
 
   const copyToClipboard = (text: string) => {
@@ -117,6 +150,25 @@ export default function PartnerDetailModal({
   }, [partner])
 
   useEffect(() => {
+    if (!selectedAS2Profile) {
+      setEditingAs2(false)
+      setAs2Error(null)
+      return
+    }
+    setEditingAs2(false)
+    setAs2Error(null)
+    setAs2Form({
+      name: selectedAS2Profile.name,
+      as2Url: selectedAS2Profile.url,
+      as2Port: String(selectedAS2Profile.as2Port || 443),
+      senderId: selectedAS2Profile.senderId || "",
+      senderQualifier: selectedAS2Profile.senderQualifier || "ZZ",
+      receiverId: selectedAS2Profile.receiverId || "",
+      receiverQualifier: selectedAS2Profile.receiverQualifier || "ZZ",
+    })
+  }, [selectedAS2Profile])
+
+  useEffect(() => {
     apiClient.getCertificates().then((res) => {
       if (res.success && Array.isArray(res.data)) {
         setCerts((res.data as any[]).map((x) => ({ id: x.id, name: String(x.name || ""), partner: String(x.partner || "") })))
@@ -151,6 +203,95 @@ export default function PartnerDetailModal({
     }
     setEditing(false)
     onSaved?.(res.data)
+  }
+
+  const getProfileOwnerSubsidiaryId = (profileId: string) => {
+    return partner.subsidiaries.find((sub) => sub.as2Profiles.some((profile) => profile.id === profileId))?.id || ""
+  }
+
+  const saveAs2Profile = async () => {
+    if (!selectedAS2Profile) return
+    const subsidiaryId = getProfileOwnerSubsidiaryId(selectedAS2Profile.id)
+    if (!subsidiaryId) {
+      setAs2Error("Unable to locate subsidiary for this AS2 profile")
+      return
+    }
+    setAs2Saving(true)
+    setAs2Error(null)
+    const res = await apiClient.updateAs2Profile(partner.id, subsidiaryId, selectedAS2Profile.id, {
+      name: as2Form.name.trim(),
+      as2Url: as2Form.as2Url.trim(),
+      as2Port: Number(as2Form.as2Port),
+      senderId: as2Form.senderId.trim(),
+      senderQualifier: as2Form.senderQualifier,
+      receiverId: as2Form.receiverId.trim(),
+      receiverQualifier: as2Form.receiverQualifier,
+    })
+    setAs2Saving(false)
+    if (!res.success || !res.data) {
+      setAs2Error(res.error || "Failed to save AS2 profile")
+      return
+    }
+    const fresh = await apiClient.getPartner(partner.id)
+    if (fresh.success && fresh.data) {
+      onSaved?.(fresh.data)
+      const updatedProfile = (fresh.data.subsidiaries || [])
+        .flatMap((sub: any) => sub.as2Profiles || [])
+        .find((profile: any) => profile.id === selectedAS2Profile.id)
+      if (updatedProfile) {
+        setSelectedAS2Profile({
+          id: updatedProfile.id,
+          name: updatedProfile.name,
+          as2Id: updatedProfile.as2Id,
+          url: updatedProfile.as2Url ?? updatedProfile.url ?? "",
+          as2Port: updatedProfile.as2Port,
+          senderId: updatedProfile.senderId,
+          senderQualifier: updatedProfile.senderQualifier,
+          receiverId: updatedProfile.receiverId,
+          receiverQualifier: updatedProfile.receiverQualifier,
+          encryptionCert: updatedProfile.encryptionCert,
+          signingCert: updatedProfile.signingCert,
+          status: updatedProfile.status,
+        })
+      }
+    }
+    setEditingAs2(false)
+  }
+
+  const openCertificateUpload = (usage: string, suggestedName?: string) => {
+    setUploadCertificateError(null)
+    setUploadCertificateUsage(usage)
+    setUploadCertificateName(suggestedName || `${partner.name} - ${usage}`)
+    setUploadCertificateType("X.509")
+    setUploadCertificateEnv("production")
+    setUploadCertificateFile(null)
+    setUploadCertificateRawContent("")
+    setShowUploadCertificate(true)
+  }
+
+  const handleUploadCertificate = async () => {
+    if ((!uploadCertificateFile && !uploadCertificateRawContent.trim()) || !uploadCertificateName.trim() || !uploadCertificateUsage.trim()) {
+      setUploadCertificateError("Please fill certificate name, usage and provide a file or raw certificate content.")
+      return
+    }
+    setUploadCertificateError(null)
+    setUploadingCertificate(true)
+    const res = await apiClient.uploadCertificate({
+      file: uploadCertificateFile,
+      rawContent: uploadCertificateRawContent.trim() || undefined,
+      name: uploadCertificateName.trim(),
+      partner: partner.name,
+      usage: uploadCertificateUsage.trim(),
+      type: uploadCertificateType,
+      environment: uploadCertificateEnv,
+    })
+    setUploadingCertificate(false)
+    if (!res.success || !res.data) {
+      setUploadCertificateError(res.error || "Upload failed")
+      return
+    }
+    setCerts((prev) => [...prev, { id: res.data.id, name: String(res.data.name || ""), partner: String(res.data.partner || "") }])
+    setShowUploadCertificate(false)
   }
 
   return (
@@ -492,14 +633,26 @@ export default function PartnerDetailModal({
                       </div>
                       <div>
                         <label className="block text-sm text-muted-foreground mb-1">Profile Name</label>
-                        <Input type="text" value={selectedAS2Profile.name} disabled className="bg-secondary/30" />
+                        <Input
+                          type="text"
+                          value={as2Form.name}
+                          disabled={!editingAs2}
+                          className={editingAs2 ? "" : "bg-secondary/30"}
+                          onChange={(e) => setAs2Form((prev) => ({ ...prev, name: e.target.value }))}
+                        />
                       </div>
                     </div>
 
                     <div>
                       <label className="block text-sm text-muted-foreground mb-1">AS2 URL Endpoint</label>
                       <div className="flex gap-2">
-                        <Input type="text" value={selectedAS2Profile.url} disabled className="bg-secondary/30 font-mono text-sm" />
+                        <Input
+                          type="text"
+                          value={as2Form.as2Url}
+                          disabled={!editingAs2}
+                          className={`${editingAs2 ? "" : "bg-secondary/30"} font-mono text-sm`}
+                          onChange={(e) => setAs2Form((prev) => ({ ...prev, as2Url: e.target.value }))}
+                        />
                         <Button variant="outline" size="sm" className="bg-transparent" onClick={() => copyToClipboard(selectedAS2Profile.url)}>
                           {copied ? "Copied" : "Copy"}
                         </Button>
@@ -508,17 +661,103 @@ export default function PartnerDetailModal({
 
                     <div className="grid grid-cols-2 gap-6">
                       <div>
+                        <label className="block text-sm text-muted-foreground mb-1">Port</label>
+                        <Input
+                          type="text"
+                          value={as2Form.as2Port}
+                          disabled={!editingAs2}
+                          className={`${editingAs2 ? "" : "bg-secondary/30"} font-mono`}
+                          onChange={(e) => setAs2Form((prev) => ({ ...prev, as2Port: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">Sender ID</label>
+                        <Input
+                          type="text"
+                          value={as2Form.senderId}
+                          disabled={!editingAs2}
+                          className={`${editingAs2 ? "" : "bg-secondary/30"} font-mono`}
+                          onChange={(e) => setAs2Form((prev) => ({ ...prev, senderId: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">Sender Qualifier</label>
+                        {editingAs2 ? (
+                          <select
+                            value={as2Form.senderQualifier}
+                            onChange={(e) => setAs2Form((prev) => ({ ...prev, senderQualifier: e.target.value }))}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                          >
+                            {AS2_QUALIFIER_OPTIONS.map((q) => (
+                              <option key={q} value={q}>{q}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input type="text" value={as2Form.senderQualifier || "-"} disabled className="bg-secondary/30 font-mono" />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">Receiver ID</label>
+                        <Input
+                          type="text"
+                          value={as2Form.receiverId}
+                          disabled={!editingAs2}
+                          className={`${editingAs2 ? "" : "bg-secondary/30"} font-mono`}
+                          onChange={(e) => setAs2Form((prev) => ({ ...prev, receiverId: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">Receiver Qualifier</label>
+                        {editingAs2 ? (
+                          <select
+                            value={as2Form.receiverQualifier}
+                            onChange={(e) => setAs2Form((prev) => ({ ...prev, receiverQualifier: e.target.value }))}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                          >
+                            {AS2_QUALIFIER_OPTIONS.map((q) => (
+                              <option key={q} value={q}>{q}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input type="text" value={as2Form.receiverQualifier || "-"} disabled className="bg-secondary/30 font-mono" />
+                        )}
+                      </div>
+                    </div>
+                    {as2Error && <p className="text-sm text-destructive">{as2Error}</p>}
+
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
                         <label className="block text-sm text-muted-foreground mb-1">Encryption Certificate</label>
                         <div className="flex items-center gap-2">
                           <Input type="text" value={selectedAS2Profile.encryptionCert || "Not configured"} disabled className="bg-secondary/30 font-mono text-sm" />
-                          <Button variant="outline" size="sm" className="bg-transparent">Upload</Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-transparent"
+                            onClick={() => openCertificateUpload("Encryption", `${selectedAS2Profile.name} - Encryption`)}
+                          >
+                            Upload
+                          </Button>
                         </div>
                       </div>
                       <div>
                         <label className="block text-sm text-muted-foreground mb-1">Signing Certificate</label>
                         <div className="flex items-center gap-2">
                           <Input type="text" value={selectedAS2Profile.signingCert || "Not configured"} disabled className="bg-secondary/30 font-mono text-sm" />
-                          <Button variant="outline" size="sm" className="bg-transparent">Upload</Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-transparent"
+                            onClick={() => openCertificateUpload("Signing", `${selectedAS2Profile.name} - Signing`)}
+                          >
+                            Upload
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -554,6 +793,36 @@ export default function PartnerDetailModal({
                     </div>
 
                     <div className="flex gap-3">
+                      {editingAs2 ? (
+                        <>
+                          <Button className="bg-primary hover:bg-primary/90" onClick={saveAs2Profile} disabled={as2Saving}>
+                            {as2Saving ? "Saving..." : "Save AS2 Config"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="bg-transparent"
+                            onClick={() => {
+                              setEditingAs2(false)
+                              setAs2Error(null)
+                              setAs2Form({
+                                name: selectedAS2Profile.name,
+                                as2Url: selectedAS2Profile.url,
+                                as2Port: String(selectedAS2Profile.as2Port || 443),
+                                senderId: selectedAS2Profile.senderId || "",
+                                senderQualifier: selectedAS2Profile.senderQualifier || "ZZ",
+                                receiverId: selectedAS2Profile.receiverId || "",
+                                receiverQualifier: selectedAS2Profile.receiverQualifier || "ZZ",
+                              })
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button variant="outline" className="bg-transparent" onClick={() => setEditingAs2(true)}>
+                          Edit AS2 Config
+                        </Button>
+                      )}
                       <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">Test Connection</Button>
                       <Button variant="outline" className="bg-transparent">View Logs</Button>
                       <Button variant="outline" className="text-amber-600 hover:bg-amber-50 bg-transparent">Inactive Profile</Button>
@@ -591,6 +860,7 @@ export default function PartnerDetailModal({
                               </div>
                               <p className="text-sm font-mono text-muted-foreground">{profile.as2Id}</p>
                               <p className="text-xs text-muted-foreground mt-1 truncate max-w-md">{profile.url}</p>
+                              <p className="text-xs font-mono text-muted-foreground mt-2">{formatAs2Route(profile)}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
@@ -615,7 +885,9 @@ export default function PartnerDetailModal({
             <>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-lg text-foreground">Certificates</h3>
-                <Button className="gap-2 bg-primary hover:bg-primary/90">+ Upload Certificate</Button>
+                <Button className="gap-2 bg-primary hover:bg-primary/90" onClick={() => openCertificateUpload("AS2 Communication", `${partner.name} - AS2 Communication`)}>
+                  + Upload Certificate
+                </Button>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -854,6 +1126,107 @@ export default function PartnerDetailModal({
           partnerCode={subsidiary ? subsidiary.code : partner.code}
           onClose={() => setShowMessageRouting(false)}
         />
+      )}
+
+      {showUploadCertificate && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-xl space-y-4 p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-foreground">Upload Certificate</h3>
+              <button
+                type="button"
+                onClick={() => setShowUploadCertificate(false)}
+                className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                X
+              </button>
+            </div>
+
+            {uploadCertificateError && <p className="text-sm text-destructive">{uploadCertificateError}</p>}
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Certificate File *</label>
+              <Input type="file" accept=".pem,.cer,.crt,.cert,.pfx,.p12" disabled={uploadingCertificate} onChange={(e) => setUploadCertificateFile(e.target.files?.[0] ?? null)} />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Certificate PEM / Base64 Content</label>
+              <textarea
+                value={uploadCertificateRawContent}
+                onChange={(e) => setUploadCertificateRawContent(e.target.value)}
+                disabled={uploadingCertificate}
+                placeholder="-----BEGIN CERTIFICATE-----&#10;MIID...&#10;-----END CERTIFICATE-----"
+                className="min-h-40 w-full rounded-md border border-input bg-background p-3 text-xs font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Certificate Name *</label>
+              <Input value={uploadCertificateName} disabled={uploadingCertificate} onChange={(e) => setUploadCertificateName(e.target.value)} />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Partner</label>
+              <Input value={partner.name} disabled className="bg-secondary/30" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">Usage *</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={uploadCertificateUsage}
+                  onChange={(e) => setUploadCertificateUsage(e.target.value)}
+                  disabled={uploadingCertificate}
+                >
+                  <option value="">Select usage</option>
+                  <option value="Encryption">Encryption</option>
+                  <option value="Signing">Signing</option>
+                  <option value="Server Auth">Server Auth</option>
+                  <option value="AS2 Communication">AS2 Communication</option>
+                  <option value="SSL">SSL</option>
+                  <option value="Root CA">Root CA</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">Certificate Type *</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={uploadCertificateType}
+                  onChange={(e) => setUploadCertificateType(e.target.value)}
+                  disabled={uploadingCertificate}
+                >
+                  <option value="X.509">X.509</option>
+                  <option value="PKCS#12">PKCS#12</option>
+                  <option value="PEM">PEM</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Environment *</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2">
+                  <input type="radio" checked={uploadCertificateEnv === "production"} onChange={() => setUploadCertificateEnv("production")} />
+                  <span>Production</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" checked={uploadCertificateEnv === "sandbox"} onChange={() => setUploadCertificateEnv("sandbox")} />
+                  <span>Sandbox</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" className="bg-transparent" onClick={() => setShowUploadCertificate(false)} disabled={uploadingCertificate}>
+                Cancel
+              </Button>
+              <Button onClick={handleUploadCertificate} disabled={uploadingCertificate}>
+                {uploadingCertificate ? "Uploading..." : "Upload"}
+              </Button>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   )
