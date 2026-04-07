@@ -115,8 +115,29 @@ run pm2 save
 
 log "Health checks"
 if [[ "$SKIP_HEALTHCHECK" != "1" ]]; then
-  run curl -fsS "$BACKEND_HEALTH_URL"
-  run curl -fsS "$NGINX_HEALTH_URL"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    run curl -fsS "$BACKEND_HEALTH_URL"
+    run curl -fsS "$NGINX_HEALTH_URL"
+  else
+    # PM2 刚重启时进程可能尚未监听，短暂等待并重试避免误报失败
+    sleep 3
+    _hc_try=0
+    _hc_ok=0
+    while [[ $_hc_try -lt 15 ]]; do
+      if curl -fsS "$BACKEND_HEALTH_URL" >/dev/null 2>&1 && curl -fsS "$NGINX_HEALTH_URL" >/dev/null 2>&1; then
+        _hc_ok=1
+        break
+      fi
+      _hc_try=$((_hc_try + 1))
+      sleep 2
+    done
+    if [[ "$_hc_ok" != "1" ]]; then
+      echo "ERROR: health checks failed after retries ($BACKEND_HEALTH_URL / $NGINX_HEALTH_URL)" >&2
+      exit 1
+    fi
+    curl -fsS "$BACKEND_HEALTH_URL"
+    curl -fsS "$NGINX_HEALTH_URL"
+  fi
 else
   echo "Skipping health checks (SKIP_HEALTHCHECK=1)"
 fi

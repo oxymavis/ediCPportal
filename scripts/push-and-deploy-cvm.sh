@@ -9,7 +9,7 @@
 #   export SSH_USER=ubuntu
 #   export SSH_KEY="$HOME/.ssh/id_edi_cvm"
 #   export REPO_DIR_ON_SERVER=~/ediCPportal
-#   export GIT_REMOTE=upstream          # remote to push to from this machine (default: upstream)
+#   export GIT_REMOTE=origin            # 显式指定 push 的 remote（未设置时：有 origin 用 origin，否则若有 ediCPportal 则用 ediCPportal）
 #
 # Usage:
 #   ./scripts/push-and-deploy-cvm.sh              # push & deploy current branch name
@@ -25,7 +25,15 @@ CVM_HOST="${CVM_HOST:?Set CVM_HOST to your CVM public IP or DNS name}"
 SSH_USER="${SSH_USER:-ubuntu}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_edi_cvm}"
 REPO_DIR_ON_SERVER="${REPO_DIR_ON_SERVER:-~/ediCPportal}"
-GIT_REMOTE="${GIT_REMOTE:-upstream}"
+if [[ -z "${GIT_REMOTE:-}" ]]; then
+  if git remote | grep -qx origin; then
+    GIT_REMOTE=origin
+  elif git remote | grep -qx ediCPportal; then
+    GIT_REMOTE=ediCPportal
+  else
+    GIT_REMOTE=origin
+  fi
+fi
 
 if [[ ! -f "$SSH_KEY" ]]; then
   echo "ERROR: SSH key not found: $SSH_KEY" >&2

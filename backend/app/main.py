@@ -39,9 +39,10 @@ async def lifespan(_app: FastAPI):
             if 'idempotency_key' not in columns:
                 alters.append("ALTER TABLE transactions ADD COLUMN idempotency_key VARCHAR(120)")
             if 'business_refs' not in columns:
-                alters.append("ALTER TABLE transactions ADD COLUMN business_refs JSON DEFAULT '{}'")
+                # MySQL rejects DEFAULT on JSON for many versions; backfill after ADD COLUMN
+                alters.append("ALTER TABLE transactions ADD COLUMN business_refs JSON")
             if 'control_refs' not in columns:
-                alters.append("ALTER TABLE transactions ADD COLUMN control_refs JSON DEFAULT '{}'")
+                alters.append("ALTER TABLE transactions ADD COLUMN control_refs JSON")
             if 'occurred_at' not in columns:
                 alters.append("ALTER TABLE transactions ADD COLUMN occurred_at DATETIME")
             if alters:
@@ -81,11 +82,11 @@ async def lifespan(_app: FastAPI):
             if 'onboarding_start_date' not in columns:
                 alters.append("ALTER TABLE partners ADD COLUMN onboarding_start_date VARCHAR(10)")
             if 'step_completion_dates' not in columns:
-                alters.append("ALTER TABLE partners ADD COLUMN step_completion_dates JSON DEFAULT '{}'")
+                alters.append("ALTER TABLE partners ADD COLUMN step_completion_dates JSON")
             if 'api_config' not in columns:
                 alters.append("ALTER TABLE partners ADD COLUMN api_config JSON")
             if 'channel_config' not in columns:
-                alters.append("ALTER TABLE partners ADD COLUMN channel_config JSON DEFAULT '{}'")
+                alters.append("ALTER TABLE partners ADD COLUMN channel_config JSON")
             if 'external_partner_id' not in columns:
                 alters.append("ALTER TABLE partners ADD COLUMN external_partner_id VARCHAR(120)")
             if 'external_sync_status' not in columns:
@@ -110,6 +111,7 @@ async def lifespan(_app: FastAPI):
                         conn.execute(text(stmt))
                     conn.execute(text("UPDATE partners SET partner_type='retailer' WHERE partner_type IS NULL"))
                     conn.execute(text("UPDATE partners SET service_tier='standard' WHERE service_tier IS NULL"))
+                    conn.execute(text("UPDATE partners SET step_completion_dates='{}' WHERE step_completion_dates IS NULL"))
                     conn.execute(text("UPDATE partners SET channel_config='{}' WHERE channel_config IS NULL"))
                     conn.execute(text("UPDATE partners SET external_sync_status='not_synced' WHERE external_sync_status IS NULL"))
                     conn.execute(text("UPDATE partners SET external_partner_sync_status=external_sync_status WHERE external_partner_sync_status IS NULL"))
