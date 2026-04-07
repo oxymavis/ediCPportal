@@ -17,6 +17,7 @@ interface IntegrationLifecyclePipelineProps {
   progress: number
   integrationType?: "api" | "edi"
   onNavigate?: (tab: string) => void
+  onActionClick?: () => void
   variant?: "full" | "compact"
   partnerName?: string
 }
@@ -34,7 +35,7 @@ const ACTION_LABELS_EDI: Record<number, { label: string; hint: string }> = {
   2: { label: "Configure Channel", hint: "Set up AS2/SFTP/VAN communication protocol" },
   3: { label: "Test Connection", hint: "Send AS2 test message and verify MDN receipt" },
   4: { label: "View Test Results", hint: "Validate document mapping with test transactions" },
-  5: { label: "Go Live", hint: "All tests passed, switch to production" },
+  5: { label: "Go Live", hint: "All tests passed, enable the live integration" },
 }
 
 const ACTION_LABELS_API: Record<number, { label: string; hint: string }> = {
@@ -42,7 +43,7 @@ const ACTION_LABELS_API: Record<number, { label: string; hint: string }> = {
   2: { label: "Configure API", hint: "Generate API token, configure webhook endpoints" },
   3: { label: "Test API", hint: "Send test API request and validate response" },
   4: { label: "View Test Results", hint: "Validate message format with test payloads" },
-  5: { label: "Go Live", hint: "All tests passed, switch to production" },
+  5: { label: "Go Live", hint: "All tests passed, enable the live integration" },
 }
 
 export function buildIntegrationSteps(
@@ -83,6 +84,7 @@ export default function IntegrationLifecyclePipeline({
   progress,
   integrationType,
   onNavigate,
+  onActionClick,
   variant = "full",
   partnerName,
 }: IntegrationLifecyclePipelineProps) {
@@ -203,9 +205,18 @@ export default function IntegrationLifecyclePipeline({
               {steps.find(s => s.status === "active")?.actionHint}
             </p>
           </div>
-          {steps.find(s => s.status === "active")?.module && onNavigate && (
+          {steps.find(s => s.status === "active") && (
             <button
-              onClick={() => onNavigate(steps.find(s => s.status === "active")!.module)}
+              onClick={() => {
+                if (onActionClick) {
+                  onActionClick()
+                  return
+                }
+                const active = steps.find(s => s.status === "active")
+                if (active?.module && onNavigate) {
+                  onNavigate(active.module)
+                }
+              }}
               className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-medium rounded-md hover:bg-primary/90 transition-colors shrink-0"
             >
               {steps.find(s => s.status === "active")?.actionLabel}

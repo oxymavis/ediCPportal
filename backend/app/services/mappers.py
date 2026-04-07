@@ -4,10 +4,13 @@ from app.models import AS2Profile, Certificate, Notification, Partner, Subsidiar
 
 def partner_to_api(p: Partner) -> dict:
     progress = max(0, min(100, int((p.current_step_id or 1) / 5 * 100)))
+    overall_sync_status = p.external_sync_status or 'not_synced'
     return {
         'id': p.id,
         'name': p.name,
         'code': p.code,
+        'type': p.partner_type or 'retailer',
+        'tier': p.service_tier or 'standard',
         'status': p.status,
         'industry': p.industry,
         'website': p.website,
@@ -19,11 +22,23 @@ def partner_to_api(p: Partner) -> dict:
         'integrationType': p.integration_type or 'edi',
         'communicationChannel': p.communication_channel,
         'apiConfig': p.api_config,
+        'channelConfig': p.channel_config or {},
         'lifecycle': {
             'currentStepId': p.current_step_id or 1,
             'onboardingStartDate': p.onboarding_start_date,
             'stepCompletionDates': p.step_completion_dates or {},
             'progressPercent': progress,
+        },
+        'externalProfile': {
+            'partnerId': p.external_partner_id,
+            'syncStatus': overall_sync_status,
+            'partnerSyncStatus': p.external_partner_sync_status or 'not_synced',
+            'certificateSyncStatus': p.external_certificate_sync_status or 'not_required',
+            'pendingAction': p.external_pending_action,
+            'lastAttemptAt': p.external_last_attempt_at.isoformat() if p.external_last_attempt_at else None,
+            'lastSyncedAt': p.external_last_synced_at.isoformat() if p.external_last_synced_at else None,
+            'lastError': p.external_last_error,
+            'lastWarning': p.external_last_warning,
         },
         'subsidiaries': [
             {

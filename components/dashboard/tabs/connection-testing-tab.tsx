@@ -29,7 +29,6 @@ interface PartnerRow {
   code: string
   integrationType: "api" | "edi"
   communicationChannel?: string
-  environment?: string
   apiConfig?: { baseUrl?: string }
   subsidiaries?: SubsidiaryRow[]
 }
@@ -75,7 +74,6 @@ export default function ConnectionTestingTab() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>("")
 
-  const [environment, setEnvironment] = useState<"production" | "sandbox">("production")
   const [endpoint, setEndpoint] = useState("https://httpbin.org/get")
   const [authType, setAuthType] = useState<"oauth2" | "api-key" | "none">("oauth2")
   const [samplePayload, setSamplePayload] = useState('{"messageType":"850","orderNo":"PO-1001"}')
@@ -117,8 +115,6 @@ export default function ConnectionTestingTab() {
 
   useEffect(() => {
     if (!selectedPartner) return
-    setEnvironment((selectedPartner.environment as "production" | "sandbox") || "production")
-
     if (selectedPartner.integrationType === "api") {
       setEndpoint(selectedPartner.apiConfig?.baseUrl || "https://httpbin.org/get")
       setAuthType("oauth2")
@@ -163,7 +159,7 @@ export default function ConnectionTestingTab() {
       }
       res = await apiClient.runApiConnectionTest({
         partnerId: selectedPartner.id,
-        environment,
+        environment: "default",
         endpoint,
         auth: authType,
         samplePayload: parsedPayload,
@@ -171,7 +167,7 @@ export default function ConnectionTestingTab() {
     } else {
       res = await apiClient.runAs2ConnectionTest({
         partnerId: selectedPartner.id,
-        environment,
+        environment: "default",
         host,
         port: Number(port) || 443,
         as2Id,
@@ -225,12 +221,6 @@ export default function ConnectionTestingTab() {
               <option key={p.id} value={p.id}>{p.name} ({p.code}) - {p.integrationType.toUpperCase()}</option>
             ))}
           </select>
-
-          <select value={environment} onChange={(e) => setEnvironment(e.target.value as "production" | "sandbox")} className="px-3 py-2 rounded-md border border-input bg-background text-sm">
-            <option value="production">Production</option>
-            <option value="sandbox">Sandbox</option>
-          </select>
-
           <Button onClick={runTest} disabled={!selectedPartner || loading}>{loading ? "Running..." : "Run Test"}</Button>
         </div>
 
@@ -276,7 +266,7 @@ export default function ConnectionTestingTab() {
             </div>
             <div className="space-y-2">
               <label className="text-sm text-muted-foreground">AS2 ID</label>
-              <Input value={as2Id} onChange={(e) => setAs2Id(e.target.value)} placeholder="PARTNER-AS2-PROD" />
+              <Input value={as2Id} onChange={(e) => setAs2Id(e.target.value)} placeholder="PARTNER-AS2" />
             </div>
             <div className="space-y-2">
               <label className="text-sm text-muted-foreground">MDN URL</label>
@@ -302,7 +292,7 @@ export default function ConnectionTestingTab() {
             visibleRuns.map((run) => (
               <button key={run.id} onClick={() => setSelectedRunId(run.id)} className={`w-full text-left p-3 rounded-md border ${selectedRunId === run.id ? "border-primary bg-primary/5" : "border-border"}`}>
                 <p className="font-medium text-foreground">{run.id}</p>
-                <p className="text-xs text-muted-foreground">{run.testType.toUpperCase()} | {run.environment} | {run.status}</p>
+                <p className="text-xs text-muted-foreground">{run.testType.toUpperCase()} | {run.status}</p>
                 {(run.summary as any)?.passedSteps !== undefined && (
                   <p className="text-[11px] text-muted-foreground mt-1">
                     passed {(run.summary as any).passedSteps} / {(run.summary as any).totalSteps}
@@ -360,7 +350,7 @@ export default function ConnectionTestingTab() {
               try {
                 const res = await apiClient.createDocumentTest({
                   partnerId: selectedPartner.id,
-                  environment,
+                  environment: "default",
                   messageType: "850",
                   payload: { test: true },
                   errors: [],

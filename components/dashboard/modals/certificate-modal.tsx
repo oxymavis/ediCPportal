@@ -29,13 +29,13 @@ export default function CertificateModal({ cert, onClose }: { cert: any; onClose
     setDownloading(false)
   }
 
-  const handleDownloadRawPem = () => {
+  const handleDownloadRawContent = () => {
     if (!cert.rawContent) return
-    const blob = new Blob([cert.rawContent], { type: "application/x-pem-file" })
+    const blob = new Blob([cert.rawContent], { type: "text/plain;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = url
-    link.download = `${String(cert.name || "certificate").replace(/\s+/g, "_")}.pem`
+    link.download = `${String(cert.name || "certificate").replace(/\s+/g, "_")}.b64.txt`
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -114,14 +114,14 @@ export default function CertificateModal({ cert, onClose }: { cert: any; onClose
           {/* Raw Certificate Data */}
           <div>
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="font-semibold text-foreground">Raw Certificate (PEM Format)</h3>
+              <h3 className="font-semibold text-foreground">Raw Certificate (Base64)</h3>
               {cert.rawContent && (
                 <div className="flex gap-2">
                   <Button variant="outline" className="bg-transparent" onClick={copyRawToClipboard}>
-                    {copiedRaw ? "Copied" : "Copy PEM"}
+                    {copiedRaw ? "Copied" : "Copy Base64"}
                   </Button>
-                  <Button variant="outline" className="bg-transparent" onClick={handleDownloadRawPem}>
-                    Download PEM
+                  <Button variant="outline" className="bg-transparent" onClick={handleDownloadRawContent}>
+                    Download Base64
                   </Button>
                 </div>
               )}

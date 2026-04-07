@@ -2,7 +2,6 @@
 
 import OverviewTab from "./tabs/overview-tab"
 import DeveloperAppsTab from "./tabs/developer-apps-tab"
-import CertificatesTab from "./tabs/certificates-tab"
 import TransactionsTab from "./tabs/transactions-tab"
 import PartnersTab from "./tabs/partners-tab"
 import NotificationsTab from "./tabs/notifications-tab"
@@ -24,8 +23,6 @@ export default function DashboardContent({ activeTab, onNavigate }: DashboardCon
         return <DeveloperAppsTab />
       case "partners":
         return <PartnersTab onNavigate={onNavigate} />
-      case "certificates":
-        return <CertificatesTab />
       case "specifications":
         return <SpecificationsTab />
       case "api-docs":

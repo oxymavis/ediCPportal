@@ -186,8 +186,14 @@ export const apiClient = {
   },
 
   deletePartner(id: number | string) {
-    return request<void>(`/v1/partners/${id}`, {
+    return request<any>(`/v1/partners/${id}`, {
       method: "DELETE",
+    })
+  },
+
+  retryPartnerExternalSync(id: number | string) {
+    return request<any>(`/v1/partners/${id}/external-sync/retry`, {
+      method: "POST",
     })
   },
 
@@ -207,7 +213,7 @@ export const apiClient = {
     partner: string
     usage: string
     type: string
-    environment: string
+    environment?: string
   }) {
     const formData = new FormData()
     if (form.file) formData.append("file", form.file)
@@ -215,7 +221,7 @@ export const apiClient = {
     formData.append("partner", form.partner)
     formData.append("usage", form.usage)
     formData.append("type", form.type)
-    formData.append("environment", form.environment)
+    if (form.environment) formData.append("environment", form.environment)
     if (form.rawContent?.trim()) formData.append("rawContent", form.rawContent)
     return request<any>("/v1/certificates", { method: "POST", body: formData })
   },
@@ -223,6 +229,20 @@ export const apiClient = {
   deleteCertificate(id: number | string) {
     return request<void>(`/v1/certificates/${id}`, {
       method: "DELETE",
+    })
+  },
+
+  updateCertificate(id: number | string, payload: {
+    name?: string
+    usage?: string
+    type?: string
+    environment?: string
+    rawContent?: string
+    status?: string
+  }) {
+    return request<any>(`/v1/certificates/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
     })
   },
 
@@ -294,7 +314,7 @@ export const apiClient = {
     return request<Array<{ client_id: string; name: string; status: string; scopes: string[]; environment: string; created_at?: string | null; last_used_at?: string | null }>>("/v1/oauth/my/clients")
   },
 
-  createMyOauthClient(payload: { name: string; scopes: string[]; environment: "production" | "sandbox" | "all" }) {
+  createMyOauthClient(payload: { name: string; scopes: string[]; environment?: "all" }) {
     return request<{ client_id: string; client_secret: string; scopes: string[]; environment: string }>("/v1/oauth/my/clients", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -420,6 +440,7 @@ export const apiClient = {
     profileId: string,
     payload: {
       name?: string
+      as2Id?: string
       as2Url?: string
       as2Port: number
       senderId: string

@@ -20,9 +20,8 @@ def test_user_can_manage_own_oauth_clients(client):
     create = client.post(
         '/v1/oauth/my/clients',
         json={
-            'name': 'OMS Sandbox App',
+            'name': 'OMS App',
             'scopes': ['integrations:write', 'transactions:read'],
-            'environment': 'sandbox',
         },
     )
     assert create.status_code == 200
@@ -38,7 +37,7 @@ def test_user_can_manage_own_oauth_clients(client):
     rows = list_res.json()['data']
     assert len(rows) == 1
     assert rows[0]['client_id'] == client_id
-    assert rows[0]['environment'] == 'sandbox'
+    assert rows[0]['environment'] == 'all'
 
     rotate = client.post(f'/v1/oauth/my/clients/{client_id}/rotate-secret')
     assert rotate.status_code == 200
@@ -57,7 +56,6 @@ def test_user_cannot_access_another_users_oauth_clients(client):
         json={
             'name': 'Private App',
             'scopes': ['integrations:write'],
-            'environment': 'production',
         },
     )
     client_id = create.json()['data']['client_id']

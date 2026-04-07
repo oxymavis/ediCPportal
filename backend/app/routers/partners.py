@@ -1,15 +1,29 @@
 from __future__ import annotations
 from datetime import datetime
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
-from app.models import AS2Profile, Partner, Subsidiary
+from app.models import AS2Profile, Certificate, Partner, Subsidiary
 from app.schemas.common import fail, ok
 from app.services.deps import get_actor, require_csrf, require_scope
 from app.services.mappers import partner_to_api
+from app.services.partner_external_sync import (
+    CERT_PENDING,
+    SYNC_CREATE,
+    SYNC_CERTIFICATE_PENDING,
+    SYNC_DELETE,
+    SYNC_FAILED,
+    SYNC_NOT_SYNCED,
+    SYNC_SYNCED,
+    SYNC_UPDATE,
+    load_partner_with_relations,
+    record_sync_result,
+    sync_partner_to_external,
+)
 from app.services.validation import validate_message_routing
 
 router = APIRouter(prefix='/v1/partners', tags=['partners'], dependencies=[Depends(get_actor), Depends(require_scope('partners'))])
@@ -17,6 +31,8 @@ router = APIRouter(prefix='/v1/partners', tags=['partners'], dependencies=[Depen
 ALLOWED_INTEGRATION_TYPES = {'edi', 'api'}
 ALLOWED_CHANNELS = {'AS2', 'SFTP', 'VAN', 'REST_API', 'WEBHOOK'}
 ALLOWED_AS2_QUALIFIERS = {f'{x:02d}' for x in range(1, 34)} | {'ZZ'}
+ALLOWED_PARTNER_TYPES = {'platform', 'retailer', 'van', '3pl', 'manufacturer'}
+ALLOWED_SERVICE_TIERS = {'enterprise', 'standard', 'basic'}
 
 
 def _validate_api_config(payload: dict | None) -> tuple[bool, str | None]:
@@ -32,12 +48,21 @@ def _validate_api_config(payload: dict | None) -> tuple[bool, str | None]:
 
 
 def _validate_as2_profile(profile: dict) -> tuple[bool, str | None]:
+    as2_id = str(profile.get('as2Id') or '').strip()
+    as2_url = str(profile.get('as2Url') or '').strip()
     port = profile.get('as2Port')
     sender_id = str(profile.get('senderId') or '').strip()
     receiver_id = str(profile.get('receiverId') or '').strip()
     sender_qualifier = str(profile.get('senderQualifier') or '').strip().upper()
     receiver_qualifier = str(profile.get('receiverQualifier') or '').strip().upper()
 
+    if not as2_id:
+        return False, 'AS2 identifier is required'
+    if not as2_url:
+        return False, 'AS2 endpoint URL is required'
+    parsed_url = urlparse(as2_url)
+    if parsed_url.scheme not in {'http', 'https'} or not parsed_url.hostname:
+        return False, 'AS2 endpoint URL must be a valid http(s) URL'
     if port in (None, ''):
         return False, 'AS2 port is required'
     try:
@@ -78,6 +103,85 @@ def _serialize_as2_profile(profile: AS2Profile) -> dict:
     }
 
 
+def _validate_partner_profile(payload: dict) -> tuple[bool, str | None]:
+    partner_type = str(payload.get('type') or 'retailer').strip().lower()
+    service_tier = str(payload.get('tier') or 'standard').strip().lower()
+    code = str(payload.get('code') or '').strip().upper()
+    if partner_type not in ALLOWED_PARTNER_TYPES:
+        return False, 'type must be one of platform/retailer/van/3pl/manufacturer'
+    if service_tier not in ALLOWED_SERVICE_TIERS:
+        return False, 'tier must be one of enterprise/standard/basic'
+    if code and len(code) > 20:
+        return False, 'code must be 20 characters or fewer'
+    return True, None
+
+
+def _normalize_channel_config(payload: dict, integration_type: str, communication_channel: str, existing: dict | None = None) -> dict:
+    cfg = dict(existing or {})
+    direct_cfg = payload.get('channelConfig')
+    if isinstance(direct_cfg, dict):
+        cfg.update(direct_cfg)
+    if integration_type == 'api':
+        api_cfg = payload.get('apiConfig') if isinstance(payload.get('apiConfig'), dict) else {}
+        if api_cfg.get('baseUrl') is not None:
+            cfg['baseUrl'] = api_cfg.get('baseUrl') or ''
+        if api_cfg.get('webhook') is not None:
+            cfg['webhookUrl'] = api_cfg.get('webhook') or ''
+        return cfg
+    if communication_channel == 'SFTP':
+        if payload.get('sftpHost') is not None:
+            cfg['host'] = payload.get('sftpHost') or ''
+        if payload.get('sftpPort') is not None:
+            cfg['port'] = str(payload.get('sftpPort') or '22')
+        elif 'port' not in cfg:
+            cfg['port'] = '22'
+        if payload.get('sftpUser') is not None:
+            cfg['username'] = payload.get('sftpUser') or ''
+        if payload.get('sftpRemotePath') is not None:
+            cfg['remotePath'] = payload.get('sftpRemotePath') or ''
+        return cfg
+    if communication_channel == 'VAN':
+        if payload.get('vanProvider') is not None:
+            cfg['provider'] = payload.get('vanProvider') or ''
+        if payload.get('vanNetworkId') is not None:
+            cfg['networkId'] = payload.get('vanNetworkId') or ''
+        if payload.get('vanTargetHost') is not None:
+            cfg['targetHost'] = payload.get('vanTargetHost') or ''
+        if payload.get('vanTargetPort') is not None:
+            cfg['targetPort'] = str(payload.get('vanTargetPort') or '')
+        if payload.get('vanUrlPath') is not None:
+            cfg['urlPath'] = payload.get('vanUrlPath') or ''
+        return cfg
+    return cfg
+
+
+def _sync_action_for_partner(partner: Partner, requested_action: str) -> str:
+    if requested_action == SYNC_DELETE:
+        return SYNC_DELETE
+    if partner.external_partner_id:
+        return SYNC_UPDATE
+    return SYNC_CREATE
+
+
+def _has_syncable_certificate(db: Session, partner: Partner) -> bool:
+    return (
+        db.query(Certificate.id)
+        .filter(Certificate.partner == partner.name)
+        .filter(Certificate.raw_content.is_not(None))
+        .first()
+        is not None
+    )
+
+
+def _mark_certificate_pending(partner: Partner) -> None:
+    partner.external_sync_status = SYNC_CERTIFICATE_PENDING
+    partner.external_partner_sync_status = SYNC_NOT_SYNCED
+    partner.external_certificate_sync_status = CERT_PENDING
+    partner.external_pending_action = None
+    partner.external_last_error = None
+    partner.external_last_warning = 'Upload a certificate to start external sync'
+
+
 @router.get('')
 def get_partners(environment: str | None = None, db: Session = Depends(get_db)):
     q = db.query(Partner).options(joinedload(Partner.subsidiaries).joinedload(Subsidiary.as2_profiles))
@@ -109,6 +213,9 @@ def create_partner(payload: dict, _csrf: None = Depends(require_csrf), db: Sessi
     primary = payload.get('primaryContact') or {}
     if not (primary.get('email') or payload.get('email')):
         return fail('Primary contact email is required', 'PARTNER_VALIDATION')
+    valid_partner, partner_err = _validate_partner_profile(payload)
+    if not valid_partner:
+        return fail(partner_err or 'Invalid partner profile', 'PARTNER_VALIDATION')
 
     integration_type = (payload.get('integrationType') or 'edi').lower()
     if integration_type not in ALLOWED_INTEGRATION_TYPES:
@@ -134,6 +241,8 @@ def create_partner(payload: dict, _csrf: None = Depends(require_csrf), db: Sessi
         id=str(uuid4()),
         name=name,
         code=code,
+        partner_type=str(payload.get('type') or 'retailer').strip().lower(),
+        service_tier=str(payload.get('tier') or 'standard').strip().lower(),
         status=payload.get('status', 'active'),
         industry=payload.get('industry', 'retail'),
         website=payload.get('website'),
@@ -146,7 +255,9 @@ def create_partner(payload: dict, _csrf: None = Depends(require_csrf), db: Sessi
         onboarding_start_date=onboarding_start_date,
         step_completion_dates=step_completion_dates,
         api_config=payload.get('apiConfig'),
-        environment=payload.get('environment', 'production'),
+        channel_config=_normalize_channel_config(payload, integration_type, communication_channel),
+        external_sync_status=SYNC_NOT_SYNCED,
+        environment=payload.get('environment', 'default'),
     )
 
     for s in payload.get('subsidiaries', []):
@@ -185,6 +296,15 @@ def create_partner(payload: dict, _csrf: None = Depends(require_csrf), db: Sessi
 
     db.add(partner)
     db.commit()
+    partner = load_partner_with_relations(db, partner.id)
+    if partner is None:
+        return fail('Partner not found after create', 'PARTNER_NOT_FOUND')
+    if (partner.communication_channel or '').upper() == 'AS2' and not _has_syncable_certificate(db, partner):
+        _mark_certificate_pending(partner)
+    else:
+        result = sync_partner_to_external(db, partner, SYNC_CREATE)
+        record_sync_result(db, partner, result)
+    db.commit()
     db.refresh(partner)
     return ok(partner_to_api(partner))
 
@@ -199,10 +319,19 @@ def update_partner(
     p = db.query(Partner).filter(Partner.id == partner_id).first()
     if not p:
         return fail('Partner not found', 'PARTNER_NOT_FOUND')
+    valid_partner, partner_err = _validate_partner_profile({
+        'type': payload.get('type', p.partner_type),
+        'tier': payload.get('tier', p.service_tier),
+        'code': payload.get('code', p.code),
+    })
+    if not valid_partner:
+        return fail(partner_err or 'Invalid partner profile', 'PARTNER_VALIDATION')
 
     for field, attr in [
         ('name', 'name'),
         ('code', 'code'),
+        ('type', 'partner_type'),
+        ('tier', 'service_tier'),
         ('status', 'status'),
         ('industry', 'industry'),
         ('website', 'website'),
@@ -215,6 +344,12 @@ def update_partner(
         ('apiConfig', 'api_config'),
     ]:
         if payload.get(field) is not None:
+            if field == 'code':
+                setattr(p, attr, str(payload.get(field) or '').strip().upper())
+                continue
+            if field in {'type', 'tier'}:
+                setattr(p, attr, str(payload.get(field) or '').strip().lower())
+                continue
             if field == 'integrationType' and payload.get(field) not in ALLOWED_INTEGRATION_TYPES:
                 return fail('integrationType must be edi or api', 'PARTNER_VALIDATION')
             if field == 'communicationChannel' and payload.get(field) not in ALLOWED_CHANNELS:
@@ -231,6 +366,19 @@ def update_partner(
         p.contact_email = contact.get('email', p.contact_email)
         p.contact_phone = contact.get('phone', p.contact_phone)
 
+    communication_channel = p.communication_channel or ('REST_API' if (p.integration_type or 'edi') == 'api' else 'AS2')
+    p.channel_config = _normalize_channel_config(payload, p.integration_type or 'edi', communication_channel, p.channel_config)
+
+    db.commit()
+    p = load_partner_with_relations(db, partner_id)
+    if p is None:
+        return fail('Partner not found', 'PARTNER_NOT_FOUND')
+    sync_action = _sync_action_for_partner(p, SYNC_UPDATE)
+    if (p.communication_channel or '').upper() == 'AS2' and not p.external_partner_id and not _has_syncable_certificate(db, p):
+        _mark_certificate_pending(p)
+    else:
+        result = sync_partner_to_external(db, p, sync_action)
+        record_sync_result(db, p, result)
     db.commit()
     db.refresh(p)
     return ok(partner_to_api(p))
@@ -354,6 +502,8 @@ def update_as2_profile(
         return fail('AS2 profile not found', 'AS2_PROFILE_NOT_FOUND')
 
     merged = {
+        'as2Id': payload.get('as2Id', profile.as2_id),
+        'as2Url': payload.get('as2Url', profile.as2_url),
         'as2Port': payload.get('as2Port', profile.as2_port),
         'senderId': payload.get('senderId', profile.sender_id),
         'senderQualifier': payload.get('senderQualifier', profile.sender_qualifier),
@@ -366,6 +516,8 @@ def update_as2_profile(
 
     if payload.get('name') is not None:
         profile.name = str(payload.get('name') or '').strip() or profile.name
+    if payload.get('as2Id') is not None:
+        profile.as2_id = str(payload.get('as2Id') or '').strip()
     if payload.get('as2Url') is not None:
         profile.as2_url = str(payload.get('as2Url') or '').strip()
     profile.as2_port = int(merged['as2Port'])
@@ -375,6 +527,12 @@ def update_as2_profile(
     profile.receiver_qualifier = str(merged['receiverQualifier']).strip().upper()
 
     db.commit()
+    partner = load_partner_with_relations(db, partner_id)
+    if partner is not None:
+        sync_action = _sync_action_for_partner(partner, SYNC_UPDATE)
+        result = sync_partner_to_external(db, partner, sync_action)
+        record_sync_result(db, partner, result)
+        db.commit()
     db.refresh(profile)
     return ok(_serialize_as2_profile(profile))
 
@@ -385,9 +543,48 @@ def delete_partner(
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
 ):
-    p = db.query(Partner).filter(Partner.id == partner_id).first()
+    p = load_partner_with_relations(db, partner_id)
     if not p:
         return fail('Partner not found', 'PARTNER_NOT_FOUND')
-    db.delete(p)
+    if not p.external_partner_id and not p.external_last_attempt_at and p.external_sync_status != SYNC_SYNCED:
+        db.delete(p)
+        db.commit()
+        return ok({'deleted': True})
+    if not p.external_partner_id:
+        p.external_partner_sync_status = SYNC_NOT_SYNCED
+        p.external_sync_status = SYNC_FAILED
+        p.external_pending_action = None
+        p.external_last_error = 'External partner id is missing; partner was retained so remote deletion can be checked manually'
+        db.commit()
+        db.refresh(p)
+        return ok({'deleted': False, 'partner': partner_to_api(p)})
+    result = sync_partner_to_external(db, p, SYNC_DELETE)
+    record_sync_result(db, p, result)
+    if result.ok:
+        db.delete(p)
     db.commit()
-    return ok({'deleted': True})
+    if result.ok:
+        return ok({'deleted': True})
+    db.refresh(p)
+    return ok({'deleted': False, 'partner': partner_to_api(p)})
+
+
+@router.post('/{partner_id}/external-sync/retry')
+def retry_external_sync(
+    partner_id: str,
+    _csrf: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+):
+    p = load_partner_with_relations(db, partner_id)
+    if not p:
+        return fail('Partner not found', 'PARTNER_NOT_FOUND')
+    action = p.external_pending_action or _sync_action_for_partner(p, SYNC_UPDATE)
+    result = sync_partner_to_external(db, p, action)
+    record_sync_result(db, p, result)
+    if result.ok and action == SYNC_DELETE:
+        db.delete(p)
+        db.commit()
+        return ok({'deleted': True})
+    db.commit()
+    db.refresh(p)
+    return ok(partner_to_api(p))

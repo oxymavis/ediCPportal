@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import PartnerDetailModal from "../modals/partner-detail-modal"
 import AddPartnerModal from "../modals/add-partner-modal"
 import IntegrationLifecyclePipeline, { buildIntegrationSteps, getProgressFromStep, getStepLabel } from "../integration-lifecycle"
+import UNISCertificatesSection from "../unis-certificates-section"
 import { apiClient } from "@/lib/api-client"
 
 interface AS2Profile {
@@ -45,6 +46,33 @@ interface CommunicationChannel {
   config: Record<string, string>
 }
 
+interface ExternalProfile {
+  partnerId?: string | null
+  syncStatus: "not_synced" | "synced" | "failed" | "certificate_pending"
+  partnerSyncStatus?: "not_synced" | "synced" | "failed"
+  certificateSyncStatus?: "not_required" | "pending" | "synced" | "failed"
+  pendingAction?: "create" | "update" | "delete" | null
+  lastAttemptAt?: string | null
+  lastSyncedAt?: string | null
+  lastError?: string | null
+  lastWarning?: string | null
+}
+
+interface CertificateRecord {
+  id: number
+  name: string
+  serialNumber: string
+  fingerprint: string
+  expires: string
+  usage: string
+  status: "active" | "expiring" | "expired" | "inactive"
+  issuer: string
+  subject: string
+  type: string
+  partner: string
+  environment: "production" | "sandbox"
+}
+
 interface TradingPartner {
   id: string
   name: string
@@ -61,8 +89,29 @@ interface TradingPartner {
   subsidiaries: Subsidiary[]
   as2Profiles: AS2Profile[]
   documentTypes: string[]
+  externalProfile: ExternalProfile
   lastSync: string
   transactionCount: number
+}
+
+function getExternalSyncBadge(externalProfile: ExternalProfile) {
+  if (externalProfile.pendingAction === "delete") {
+    return { label: "Delete Pending", className: "bg-rose-100 text-rose-700" }
+  }
+  if (externalProfile.syncStatus === "certificate_pending") {
+    return { label: "Certificate Pending", className: "bg-yellow-100 text-yellow-800" }
+  }
+  if (externalProfile.syncStatus === "synced") {
+    return { label: "Fully Synced", className: "bg-emerald-100 text-emerald-700" }
+  }
+  if (externalProfile.syncStatus === "failed") {
+    return { label: "Sync Failed", className: "bg-amber-100 text-amber-700" }
+  }
+  return { label: "Not Synced", className: "bg-slate-100 text-slate-700" }
+}
+
+function canRetryExternalSync(externalProfile: ExternalProfile) {
+  return externalProfile.syncStatus === "failed" || Boolean(externalProfile.pendingAction)
 }
 
 function apiPartnerToTradingPartner(p: any): TradingPartner {
@@ -70,7 +119,7 @@ function apiPartnerToTradingPartner(p: any): TradingPartner {
   const ch = p.communicationChannel
   const channel: CommunicationChannel =
     typeof ch === "string"
-      ? { type: ch, status: "configured", config: {} }
+      ? { type: ch, status: "configured", config: p.channelConfig ?? p.apiConfig ?? {} }
       : { type: ch?.type ?? "REST_API", status: ch?.status ?? "configured", config: ch?.config ?? {} }
   const subs: Subsidiary[] = (p.subsidiaries || []).map((s: any) => ({
     id: s.id,
@@ -110,7 +159,18 @@ function apiPartnerToTradingPartner(p: any): TradingPartner {
     subsidiaries: subs,
     as2Profiles: subs.flatMap(s => s.as2Profiles),
     documentTypes: subs[0]?.documentTypes ?? [],
-    lastSync: "--",
+    externalProfile: {
+      partnerId: p.externalProfile?.partnerId ?? null,
+      syncStatus: p.externalProfile?.syncStatus ?? "not_synced",
+      partnerSyncStatus: p.externalProfile?.partnerSyncStatus ?? "not_synced",
+      certificateSyncStatus: p.externalProfile?.certificateSyncStatus ?? "not_required",
+      pendingAction: p.externalProfile?.pendingAction ?? null,
+      lastAttemptAt: p.externalProfile?.lastAttemptAt ?? null,
+      lastSyncedAt: p.externalProfile?.lastSyncedAt ?? null,
+      lastError: p.externalProfile?.lastError ?? null,
+      lastWarning: p.externalProfile?.lastWarning ?? null,
+    },
+    lastSync: p.externalProfile?.lastSyncedAt ?? p.externalProfile?.lastAttemptAt ?? "--",
     transactionCount: 0,
   }
 }
@@ -120,15 +180,22 @@ const INITIAL_MOCK_PARTNERS: TradingPartner[] = []
 export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string) => void }) {
   const [showAddModal, setShowAddModal] = useState(false)
   const [partners, setPartners] = useState<TradingPartner[]>([])
+  const [certificates, setCertificates] = useState<CertificateRecord[]>([])
   const [partnersLoaded, setPartnersLoaded] = useState(false)
+  const [retryingPartnerIds, setRetryingPartnerIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    apiClient.getPartners().then((r) => {
+    Promise.all([apiClient.getPartners(), apiClient.getCertificates()]).then(([partnerRes, certRes]) => {
       setPartnersLoaded(true)
-      if (r.success && Array.isArray(r.data)) {
-        setPartners(r.data.map(apiPartnerToTradingPartner))
+      if (partnerRes.success && Array.isArray(partnerRes.data)) {
+        setPartners(partnerRes.data.map(apiPartnerToTradingPartner))
       } else {
         setPartners([])
+      }
+      if (certRes.success && Array.isArray(certRes.data)) {
+        setCertificates(certRes.data as CertificateRecord[])
+      } else {
+        setCertificates([])
       }
     })
   }, [])
@@ -137,15 +204,43 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
   const [selectedSubsidiary, setSelectedSubsidiary] = useState<Subsidiary | null>(null)
   const [expandedPartners, setExpandedPartners] = useState<Set<string>>(new Set(["tp-005"]))
   const [searchQuery, setSearchQuery] = useState("")
+  const [filterStatus, setFilterStatus] = useState<string>("active")
   const [filterType, setFilterType] = useState<string>("all")
   const [filterStage, setFilterStage] = useState<string>("all")
   const [filterIntegration, setFilterIntegration] = useState<string>("all")
+  const [filterCertStatus, setFilterCertStatus] = useState<string>("all")
+  const [filterCertUsage, setFilterCertUsage] = useState<string>("all")
+  const [filterCertExpiry, setFilterCertExpiry] = useState<string>("all")
 
   const toggleExpanded = (partnerId: string) => {
     const newExpanded = new Set(expandedPartners)
     if (newExpanded.has(partnerId)) newExpanded.delete(partnerId)
     else newExpanded.add(partnerId)
     setExpandedPartners(newExpanded)
+  }
+
+  const retryPartnerSync = async (partnerId: string) => {
+    setRetryingPartnerIds((prev) => new Set(prev).add(partnerId))
+    const res = await apiClient.retryPartnerExternalSync(partnerId)
+    setRetryingPartnerIds((prev) => {
+      const next = new Set(prev)
+      next.delete(partnerId)
+      return next
+    })
+    if (!res.success || !res.data) return
+    if (res.data.deleted) {
+      setPartners((prev) => prev.filter((partner) => partner.id !== partnerId))
+      if (selectedPartner?.id === partnerId) {
+        setSelectedPartner(null)
+        setSelectedSubsidiary(null)
+      }
+      return
+    }
+    const mapped = apiPartnerToTradingPartner(res.data)
+    setPartners((prev) => prev.map((partner) => (partner.id === mapped.id ? mapped : partner)))
+    if (selectedPartner?.id === mapped.id) {
+      setSelectedPartner(mapped)
+    }
   }
 
   const getTypeLabel = (type: string) => {
@@ -157,16 +252,67 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
     return colors[type] || "bg-gray-100 text-gray-700"
   }
 
-  const filteredPartners = partners.filter(partner => {
-    const matchesSearch = partner.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      partner.code.toLowerCase().includes(searchQuery.toLowerCase())
+  const certificatesByPartner = useMemo(() => {
+    const map = new Map<string, CertificateRecord[]>()
+    for (const cert of certificates) {
+      const key = cert.partner.trim().toLowerCase()
+      const current = map.get(key) || []
+      current.push(cert)
+      map.set(key, current)
+    }
+    return map
+  }, [certificates])
+
+  const certificateUsageOptions = useMemo(() => {
+    return Array.from(new Set(certificates.map((cert) => cert.usage).filter(Boolean))).sort((a, b) => a.localeCompare(b))
+  }, [certificates])
+
+  const getDaysUntilExpiry = (expires: string) => {
+    const target = new Date(expires)
+    const now = new Date()
+    return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  }
+
+  const matchesCertExpiry = (cert: CertificateRecord) => {
+    if (filterCertExpiry === "all") return true
+    if (filterCertExpiry === "expired") return cert.status === "expired"
+    if (!["30", "60", "90"].includes(filterCertExpiry)) return true
+    const days = getDaysUntilExpiry(cert.expires)
+    return days >= 0 && days <= Number(filterCertExpiry)
+  }
+
+  const filteredPartners = partners.filter((partner) => {
+    const partnerCertificates = certificatesByPartner.get(partner.name.trim().toLowerCase()) || []
+    const keyword = searchQuery.trim().toLowerCase()
+    const matchesSearch = !keyword ||
+      partner.name.toLowerCase().includes(keyword) ||
+      partner.code.toLowerCase().includes(keyword) ||
+      partnerCertificates.some((cert) =>
+        cert.name.toLowerCase().includes(keyword) ||
+        cert.partner.toLowerCase().includes(keyword) ||
+        cert.serialNumber.toLowerCase().includes(keyword) ||
+        cert.fingerprint.toLowerCase().includes(keyword) ||
+        cert.issuer.toLowerCase().includes(keyword) ||
+        cert.subject.toLowerCase().includes(keyword)
+      )
+    const matchesStatus = filterStatus === "all" || partner.status === filterStatus
     const matchesType = filterType === "all" || partner.type === filterType
     const matchesIntegration = filterIntegration === "all" || partner.integrationType === filterIntegration
     const matchesStage = filterStage === "all" ||
       (filterStage === "setup" && partner.currentStepId <= 2) ||
       (filterStage === "testing" && (partner.currentStepId === 3 || partner.currentStepId === 4)) ||
       (filterStage === "live" && partner.currentStepId >= 5)
-    return matchesSearch && matchesType && matchesIntegration && matchesStage
+    const matchesCertFilters = partnerCertificates.some((cert) => {
+      const statusOk = filterCertStatus === "all" || cert.status === filterCertStatus
+      const usageOk = filterCertUsage === "all" || cert.usage === filterCertUsage
+      const expiryOk = matchesCertExpiry(cert)
+      return statusOk && usageOk && expiryOk
+    }) || (
+      filterCertStatus === "all" &&
+      filterCertUsage === "all" &&
+      filterCertExpiry === "all"
+    )
+    return matchesSearch && matchesStatus && matchesType && matchesIntegration && matchesStage && matchesCertFilters
   })
 
   const stageCount = {
@@ -195,7 +341,7 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
         {[
           { key: "setup", label: "Setup", desc: "Partner & communication setup", count: stageCount.setup, colorBg: "bg-slate-50", colorBorder: "border-slate-400", colorText: "text-slate-600", colorCount: "text-slate-700", colorDot: "bg-slate-100 text-slate-500" },
           { key: "testing", label: "Testing", desc: "Connection & integration validation", count: stageCount.testing, colorBg: "bg-amber-50", colorBorder: "border-amber-400", colorText: "text-amber-600", colorCount: "text-amber-700", colorDot: "bg-amber-100 text-amber-600" },
-          { key: "live", label: "Live", desc: "Production active", count: stageCount.live, colorBg: "bg-green-50", colorBorder: "border-green-400", colorText: "text-green-600", colorCount: "text-green-700", colorDot: "bg-green-100 text-green-600" },
+          { key: "live", label: "Live", desc: "Live integration active", count: stageCount.live, colorBg: "bg-green-50", colorBorder: "border-green-400", colorText: "text-green-600", colorCount: "text-green-700", colorDot: "bg-green-100 text-green-600" },
         ].map(stage => (
           <Card
             key={stage.key}
@@ -219,23 +365,75 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
       </div>
 
       {/* Search and Filter */}
-      <div className="flex gap-3">
-        <div className="flex-1">
-          <Input placeholder="Search partners or codes..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-background" />
+      <Card className="p-4">
+        <div className="space-y-4">
+          <Input
+            placeholder="Search partners, codes, certificate names, SN, fingerprint, issuer or subject..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="bg-background"
+          />
+          <div className="flex flex-wrap gap-3">
+            <select value={filterIntegration} onChange={(e) => setFilterIntegration(e.target.value)} className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm">
+              <option value="all">All Paths</option>
+              <option value="edi">EDI (AS2/SFTP/VAN)</option>
+              <option value="api">API</option>
+            </select>
+            <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm">
+              <option value="all">All Types</option>
+              <option value="retailer">Retailer</option>
+              <option value="platform">Platform</option>
+              <option value="van">VAN</option>
+              <option value="3pl">3PL</option>
+            </select>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm">
+              <option value="active">Active Partners</option>
+              <option value="all">All Partner Status</option>
+              <option value="inactive">Inactive Partners</option>
+            </select>
+            <select value={filterCertStatus} onChange={(e) => setFilterCertStatus(e.target.value)} className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm">
+              <option value="all">All Cert Status</option>
+              <option value="active">Active</option>
+              <option value="expiring">Expiring Soon</option>
+              <option value="expired">Expired</option>
+            </select>
+            <select value={filterCertUsage} onChange={(e) => setFilterCertUsage(e.target.value)} className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm">
+              <option value="all">All Cert Usage</option>
+              {certificateUsageOptions.map((usage) => (
+                <option key={usage} value={usage}>{usage}</option>
+              ))}
+            </select>
+            <select value={filterCertExpiry} onChange={(e) => setFilterCertExpiry(e.target.value)} className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm">
+              <option value="all">All Cert Expiry</option>
+              <option value="30">Expires in 30 days</option>
+              <option value="60">Expires in 60 days</option>
+              <option value="90">Expires in 90 days</option>
+              <option value="expired">Already Expired</option>
+            </select>
+            <Button
+              variant="outline"
+              className="bg-transparent"
+              onClick={() => {
+                setSearchQuery("")
+                setFilterStatus("active")
+                setFilterType("all")
+                setFilterStage("all")
+                setFilterIntegration("all")
+                setFilterCertStatus("all")
+                setFilterCertUsage("all")
+                setFilterCertExpiry("all")
+              }}
+            >
+              Clear Filters
+            </Button>
+          </div>
+          <div className="text-sm text-muted-foreground">
+            Showing {filteredPartners.length} of {partners.length} partners, with {certificates.length} certificates loaded.
+          </div>
         </div>
-        <select value={filterIntegration} onChange={(e) => setFilterIntegration(e.target.value)} className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm">
-          <option value="all">All Paths</option>
-          <option value="edi">EDI (AS2/SFTP/VAN)</option>
-          <option value="api">API</option>
-        </select>
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm">
-          <option value="all">All Types</option>
-          <option value="retailer">Retailer</option>
-          <option value="platform">Platform</option>
-          <option value="van">VAN</option>
-          <option value="3pl">3PL</option>
-        </select>
-      </div>
+      </Card>
+
+      <UNISCertificatesSection certificates={certificates} />
 
       {/* Partners List */}
       <div className="space-y-4">
@@ -262,9 +460,18 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
                         {partner.integrationType === "api" ? "API" : "EDI"}
                         {partner.communicationChannel && ` / ${partner.communicationChannel.type}`}
                       </span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getExternalSyncBadge(partner.externalProfile).className}`}>
+                        {getExternalSyncBadge(partner.externalProfile).label}
+                      </span>
                     </div>
                     <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                       <span>{partner.email}</span>
+                      {partner.externalProfile.partnerId && (
+                        <>
+                          <span className="text-border">|</span>
+                          <span className="font-mono">External ID {partner.externalProfile.partnerId}</span>
+                        </>
+                      )}
                       {partner.subsidiaries.length > 0 && (
                         <>
                           <span className="text-border">|</span>
@@ -304,6 +511,18 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
                     variant="outline"
                     size="sm"
                     className="bg-transparent"
+                    disabled={retryingPartnerIds.has(partner.id) || !canRetryExternalSync(partner.externalProfile)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void retryPartnerSync(partner.id)
+                    }}
+                  >
+                    {retryingPartnerIds.has(partner.id) ? "Retrying…" : "Retry Sync"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-transparent"
                     onClick={(e) => { e.stopPropagation(); setSelectedPartner(partner); setSelectedSubsidiary(null) }}
                   >
                     Details
@@ -323,6 +542,10 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
                   variant="full"
                   partnerName={partner.name}
                   onNavigate={onNavigate}
+                  onActionClick={() => {
+                    setSelectedPartner(partner)
+                    setSelectedSubsidiary(null)
+                  }}
                 />
 
                 {/* Communication Channel Info */}
@@ -348,6 +571,61 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
                     </div>
                   </div>
                 )}
+
+                <div className="mt-4 p-3 bg-background border border-border rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h5 className="text-xs font-semibold text-foreground uppercase tracking-wide">External Sync</h5>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getExternalSyncBadge(partner.externalProfile).className}`}>
+                        {getExternalSyncBadge(partner.externalProfile).label}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 bg-transparent text-xs"
+                        disabled={retryingPartnerIds.has(partner.id) || !canRetryExternalSync(partner.externalProfile)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void retryPartnerSync(partner.id)
+                        }}
+                      >
+                        {retryingPartnerIds.has(partner.id) ? "Retrying…" : "Retry Sync"}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">External Partner ID:</span>
+                      <span className="font-mono text-foreground">{partner.externalProfile.partnerId || "--"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Pending Action:</span>
+                      <span className="font-mono text-foreground">{partner.externalProfile.pendingAction || "--"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Last Attempt:</span>
+                      <span className="font-mono text-foreground">{partner.externalProfile.lastAttemptAt || "--"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Partner Sync:</span>
+                      <span className="font-mono text-foreground">{partner.externalProfile.partnerSyncStatus || "--"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Certificate Sync:</span>
+                      <span className="font-mono text-foreground">{partner.externalProfile.certificateSyncStatus || "--"}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Last Success:</span>
+                      <span className="font-mono text-foreground">{partner.externalProfile.lastSyncedAt || "--"}</span>
+                    </div>
+                  </div>
+                  {partner.externalProfile.lastError && (
+                    <p className="mt-2 text-xs text-rose-700">{partner.externalProfile.lastError}</p>
+                  )}
+                  {partner.externalProfile.lastWarning && (
+                    <p className="mt-2 text-xs text-yellow-700">{partner.externalProfile.lastWarning}</p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -458,6 +736,11 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
             const mapped = apiPartnerToTradingPartner(updated)
             setPartners((prev) => prev.map((p) => (p.id === mapped.id ? mapped : p)))
             setSelectedPartner(mapped)
+          }}
+          onDeleted={(deletedPartnerId) => {
+            setPartners((prev) => prev.filter((p) => p.id !== deletedPartnerId))
+            setSelectedPartner(null)
+            setSelectedSubsidiary(null)
           }}
           onClose={() => { setSelectedPartner(null); setSelectedSubsidiary(null) }}
         />

@@ -75,7 +75,8 @@ def test_partners_crud_flow(client):
     list_res = client.get('/v1/partners?environment=production')
     assert list_res.status_code == 200
     assert list_res.json()['success'] is True
-    listed_profile = list_res.json()['data'][0]['subsidiaries'][0]['as2Profiles'][0]
+    listed_partner = next(item for item in list_res.json()['data'] if item['id'] == pid)
+    listed_profile = listed_partner['subsidiaries'][0]['as2Profiles'][0]
     assert listed_profile['as2Port'] == 443
     assert listed_profile['senderId'] == 'UNIS-SENDER'
     assert listed_profile['senderQualifier'] == 'ZZ'
@@ -294,6 +295,11 @@ FGNlcnQtdGVzdC1maW5nZXJwcmludDATBgNVHSUEDDAKBggrBgEFBQcDATAKBggqhkjO
 PQQDAgNHADBEAiAqQm1vY2stY2VydC1jb250ZW50LXRlc3QxAiBtb2NrLXNpZ25hdHVy
 ZS1jb250ZW50LXRlc3Q=
 -----END CERTIFICATE-----"""
+    normalized_b64 = ''.join(
+        line.strip()
+        for line in pem_text.splitlines()
+        if line.strip() and 'BEGIN CERTIFICATE' not in line and 'END CERTIFICATE' not in line
+    )
     cert_create = client.post(
         '/v1/certificates',
         headers=headers,
@@ -309,11 +315,11 @@ ZS1jb250ZW50LXRlc3Q=
     assert cert_create.status_code == 200
     assert cert_create.json()['success'] is True
     cert_id = cert_create.json()['data']['id']
-    assert cert_create.json()['data']['rawContent'] == pem_text
+    assert cert_create.json()['data']['rawContent'] == normalized_b64
 
     cert_get = client.get(f'/v1/certificates/{cert_id}')
     assert cert_get.status_code == 200
-    assert cert_get.json()['data']['rawContent'] == pem_text
+    assert cert_get.json()['data']['rawContent'] == normalized_b64
 
 
 def test_routing_rule_validation_and_update(client):

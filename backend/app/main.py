@@ -68,6 +68,10 @@ async def lifespan(_app: FastAPI):
         if 'partners' in inspector.get_table_names():
             columns = {c['name'] for c in inspector.get_columns('partners')}
             alters = []
+            if 'partner_type' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN partner_type VARCHAR(20) DEFAULT 'retailer'")
+            if 'service_tier' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN service_tier VARCHAR(20) DEFAULT 'standard'")
             if 'integration_type' not in columns:
                 alters.append("ALTER TABLE partners ADD COLUMN integration_type VARCHAR(16) DEFAULT 'edi'")
             if 'communication_channel' not in columns:
@@ -80,10 +84,36 @@ async def lifespan(_app: FastAPI):
                 alters.append("ALTER TABLE partners ADD COLUMN step_completion_dates JSON DEFAULT '{}'")
             if 'api_config' not in columns:
                 alters.append("ALTER TABLE partners ADD COLUMN api_config JSON")
+            if 'channel_config' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN channel_config JSON DEFAULT '{}'")
+            if 'external_partner_id' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_partner_id VARCHAR(120)")
+            if 'external_sync_status' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_sync_status VARCHAR(20) DEFAULT 'not_synced'")
+            if 'external_partner_sync_status' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_partner_sync_status VARCHAR(20) DEFAULT 'not_synced'")
+            if 'external_certificate_sync_status' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_certificate_sync_status VARCHAR(20) DEFAULT 'not_required'")
+            if 'external_pending_action' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_pending_action VARCHAR(16)")
+            if 'external_last_attempt_at' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_last_attempt_at DATETIME")
+            if 'external_last_synced_at' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_last_synced_at DATETIME")
+            if 'external_last_error' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_last_error TEXT")
+            if 'external_last_warning' not in columns:
+                alters.append("ALTER TABLE partners ADD COLUMN external_last_warning TEXT")
             if alters:
                 with engine.begin() as conn:
                     for stmt in alters:
                         conn.execute(text(stmt))
+                    conn.execute(text("UPDATE partners SET partner_type='retailer' WHERE partner_type IS NULL"))
+                    conn.execute(text("UPDATE partners SET service_tier='standard' WHERE service_tier IS NULL"))
+                    conn.execute(text("UPDATE partners SET channel_config='{}' WHERE channel_config IS NULL"))
+                    conn.execute(text("UPDATE partners SET external_sync_status='not_synced' WHERE external_sync_status IS NULL"))
+                    conn.execute(text("UPDATE partners SET external_partner_sync_status=external_sync_status WHERE external_partner_sync_status IS NULL"))
+                    conn.execute(text("UPDATE partners SET external_certificate_sync_status='not_required' WHERE external_certificate_sync_status IS NULL"))
         if 'api_clients' in inspector.get_table_names():
             columns = {c['name'] for c in inspector.get_columns('api_clients')}
             if 'owner_user_id' not in columns:

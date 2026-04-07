@@ -16,7 +16,6 @@ export default function DashboardLayout({ user }: { user: any }) {
     dashboard: "Dashboard",
     "developer-apps": "Developer Apps",
     partners: "Trading Partners",
-    certificates: "Certificates",
     specifications: "Message Specifications",
     "api-docs": "API Documentation",
     "connection-testing": "Connection Testing",
@@ -24,21 +23,31 @@ export default function DashboardLayout({ user }: { user: any }) {
     notifications: "Notifications",
   }
   const validTabs = useMemo(() => new Set(Object.keys(tabTitles)), [])
+  const resolveTab = (tab: string | null) => {
+    if (tab === "certificates") return "partners"
+    return tab && validTabs.has(tab) ? tab : "dashboard"
+  }
   const [activeTab, setActiveTabState] = useState(() => {
-    const initial = searchParams.get("tab") || "dashboard"
-    return validTabs.has(initial) ? initial : "dashboard"
+    return resolveTab(searchParams.get("tab"))
   })
 
   const tabFromUrl = searchParams.get("tab") || "dashboard"
   // 仅从 URL 同步到 state（如浏览器前进/后退或带 ?tab= 的链接），避免与 setActiveTab 形成循环
   useEffect(() => {
-    const resolved = validTabs.has(tabFromUrl) ? tabFromUrl : "dashboard"
+    const resolved = resolveTab(tabFromUrl)
     setActiveTabState((prev) => (prev !== resolved ? resolved : prev))
   }, [tabFromUrl, validTabs])
 
+  useEffect(() => {
+    if (tabFromUrl !== "certificates") return
+    const next = new URLSearchParams(searchParams.toString())
+    next.set("tab", "partners")
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false })
+  }, [pathname, router, searchParams, tabFromUrl])
+
   // 用户点击切换 tab 时更新 URL，避免在 effect 里反向同步导致导航循环和屏闪
   const setActiveTab = (tab: string) => {
-    const resolved = validTabs.has(tab) ? tab : "dashboard"
+    const resolved = resolveTab(tab)
     setActiveTabState(resolved)
     const next = new URLSearchParams(searchParams.toString())
     if (resolved === "dashboard") next.delete("tab")
@@ -99,7 +108,7 @@ export default function DashboardLayout({ user }: { user: any }) {
             >
               {sidebarOpen ? "\u00d7" : "\u2630"}
             </button>
-            <h1 className="text-lg font-semibold text-foreground">{tabTitles[activeTab]}</h1>
+            <h1 className="text-lg font-semibold text-foreground">{tabTitles[activeTab] || tabTitles.dashboard}</h1>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">Company:</span>

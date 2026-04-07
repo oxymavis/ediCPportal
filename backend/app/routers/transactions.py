@@ -161,7 +161,7 @@ async def create_transaction(
     file: UploadFile | None = File(default=None),
     type: str = Form(default='850'),
     partner: str = Form(default='Unknown'),
-    environment: str = Form(default='production'),
+    environment: str = Form(default='default'),
     integrationType: str = Form(default='edi'),
     channel: str = Form(default='AS2'),
     _csrf: None = Depends(require_csrf),

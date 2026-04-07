@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import MessageRoutingModal from "./message-routing-modal"
 import PartnerSpecificationsTab from "../partner-specifications-tab"
 import { apiClient } from "@/lib/api-client"
+import { deriveCertificateBase64 } from "@/lib/certificate-content"
 
 const AS2_QUALIFIER_OPTIONS = [...Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, "0")), "ZZ"]
 
@@ -30,6 +31,27 @@ function formatAs2Route(profile: AS2Profile) {
   return `${profile.senderQualifier || "ZZ"}:${profile.senderId || "-"} -> ${profile.receiverQualifier || "ZZ"}:${profile.receiverId || "-"}${port}`
 }
 
+function getAs2ProfileFormError(form: {
+  as2Url: string
+  as2Port: string
+  senderId: string
+  receiverId: string
+}) {
+  if (!form.as2Url.trim()) return "AS2 endpoint URL is required"
+  try {
+    const parsed = new URL(form.as2Url.trim())
+    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname) {
+      return "AS2 endpoint URL must be a valid http(s) URL"
+    }
+  } catch {
+    return "AS2 endpoint URL must be a valid http(s) URL"
+  }
+  if (!form.as2Port.trim()) return "AS2 port is required"
+  if (!form.senderId.trim()) return "Sender ID is required"
+  if (!form.receiverId.trim()) return "Receiver ID is required"
+  return null
+}
+
 interface Subsidiary {
   id: string
   name: string
@@ -51,14 +73,36 @@ interface TradingPartner {
   subsidiaries: Subsidiary[]
   as2Profiles: AS2Profile[]
   documentTypes: string[]
+  externalProfile?: {
+    partnerId?: string | null
+    syncStatus?: "not_synced" | "synced" | "failed" | "certificate_pending"
+    partnerSyncStatus?: "not_synced" | "synced" | "failed"
+    certificateSyncStatus?: "not_required" | "pending" | "synced" | "failed"
+    pendingAction?: "create" | "update" | "delete" | null
+    lastAttemptAt?: string | null
+    lastSyncedAt?: string | null
+    lastError?: string | null
+    lastWarning?: string | null
+  }
   lastSync: string
   transactionCount: number
 }
 
-interface CertificateLite {
+interface CertificateRecord {
   id: number
   name: string
   partner: string
+  usage?: string
+  type?: string
+  rawContent?: string | null
+  status?: string
+  expires?: string
+}
+
+interface CertificateUploadSyncNotice {
+  tone: "success" | "warning" | "error"
+  text: string
+  retryAvailable: boolean
 }
 
 export default function PartnerDetailModal({
@@ -66,11 +110,13 @@ export default function PartnerDetailModal({
   subsidiary,
   onClose,
   onSaved,
+  onDeleted,
 }: {
   partner: TradingPartner
   subsidiary?: Subsidiary | null
   onClose: () => void
   onSaved?: (partner: any) => void
+  onDeleted?: (partnerId: string) => void
 }) {
   const [activeTab, setActiveTab] = useState(subsidiary ? "subsidiary" : "overview")
   const [selectedAS2Profile, setSelectedAS2Profile] = useState<AS2Profile | null>(null)
@@ -79,21 +125,27 @@ export default function PartnerDetailModal({
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [retryingSync, setRetryingSync] = useState(false)
+  const [deletingPartner, setDeletingPartner] = useState(false)
+  const [inactivatingPartner, setInactivatingPartner] = useState(false)
   const [editingAs2, setEditingAs2] = useState(false)
   const [as2Saving, setAs2Saving] = useState(false)
   const [as2Error, setAs2Error] = useState<string | null>(null)
   const [showUploadCertificate, setShowUploadCertificate] = useState(false)
   const [uploadingCertificate, setUploadingCertificate] = useState(false)
   const [uploadCertificateError, setUploadCertificateError] = useState<string | null>(null)
+  const [uploadCertificateNotice, setUploadCertificateNotice] = useState<CertificateUploadSyncNotice | null>(null)
   const [uploadCertificateName, setUploadCertificateName] = useState("")
   const [uploadCertificateUsage, setUploadCertificateUsage] = useState("")
   const [uploadCertificateType, setUploadCertificateType] = useState("X.509")
-  const [uploadCertificateEnv, setUploadCertificateEnv] = useState<"production" | "sandbox">("production")
   const [uploadCertificateFile, setUploadCertificateFile] = useState<File | null>(null)
   const [uploadCertificateRawContent, setUploadCertificateRawContent] = useState("")
-  const [certs, setCerts] = useState<CertificateLite[]>([])
+  const [certs, setCerts] = useState<CertificateRecord[]>([])
+  const [editingCertificateId, setEditingCertificateId] = useState<number | null>(null)
+  const [expandedCertificateId, setExpandedCertificateId] = useState<number | null>(null)
   const [form, setForm] = useState({
     name: partner.name,
+    code: partner.code,
     email: partner.email,
     status: partner.status as "active" | "inactive",
     type: partner.type,
@@ -101,6 +153,7 @@ export default function PartnerDetailModal({
   })
   const [as2Form, setAs2Form] = useState({
     name: "",
+    as2Id: "",
     as2Url: "",
     as2Port: "443",
     senderId: "",
@@ -108,6 +161,29 @@ export default function PartnerDetailModal({
     receiverId: "",
     receiverQualifier: "ZZ",
   })
+  const externalProfile = partner.externalProfile || {
+    partnerId: null,
+    syncStatus: "not_synced" as const,
+    partnerSyncStatus: "not_synced" as const,
+    certificateSyncStatus: "not_required" as const,
+    pendingAction: null,
+    lastAttemptAt: null,
+    lastSyncedAt: null,
+    lastError: null,
+    lastWarning: null,
+  }
+  const syncBadge =
+    externalProfile.pendingAction === "delete"
+      ? { label: "Delete Pending", className: "bg-rose-100 text-rose-700" }
+      : externalProfile.syncStatus === "certificate_pending"
+        ? { label: "Certificate Pending", className: "bg-yellow-100 text-yellow-800" }
+      : externalProfile.syncStatus === "synced"
+        ? { label: "Fully Synced", className: "bg-emerald-100 text-emerald-700" }
+        : externalProfile.syncStatus === "failed"
+          ? { label: "Sync Failed", className: "bg-amber-100 text-amber-700" }
+          : { label: "Not Synced", className: "bg-slate-100 text-slate-700" }
+
+  const canRetryExternalSync = externalProfile.syncStatus === "failed" || Boolean(externalProfile.pendingAction)
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -140,6 +216,7 @@ export default function PartnerDetailModal({
   useEffect(() => {
     setForm({
       name: partner.name,
+      code: partner.code,
       email: partner.email,
       status: partner.status,
       type: partner.type,
@@ -159,6 +236,7 @@ export default function PartnerDetailModal({
     setAs2Error(null)
     setAs2Form({
       name: selectedAS2Profile.name,
+      as2Id: selectedAS2Profile.as2Id,
       as2Url: selectedAS2Profile.url,
       as2Port: String(selectedAS2Profile.as2Port || 443),
       senderId: selectedAS2Profile.senderId || "",
@@ -169,12 +247,30 @@ export default function PartnerDetailModal({
   }, [selectedAS2Profile])
 
   useEffect(() => {
-    apiClient.getCertificates().then((res) => {
-      if (res.success && Array.isArray(res.data)) {
-        setCerts((res.data as any[]).map((x) => ({ id: x.id, name: String(x.name || ""), partner: String(x.partner || "") })))
-      }
-    })
-  }, [])
+    void refreshCertificates()
+  }, [partner.name])
+
+  const refreshCertificates = async () => {
+    const res = await apiClient.getCertificates()
+    if (res.success && Array.isArray(res.data)) {
+      setCerts(
+        (res.data as any[])
+          .filter((x) => String(x.partner || "").trim().toLowerCase() === partner.name.trim().toLowerCase())
+          .map((x) => ({
+            id: x.id,
+            name: String(x.name || ""),
+            partner: String(x.partner || ""),
+            usage: x.usage ? String(x.usage) : "",
+            type: x.type ? String(x.type) : "",
+            rawContent: x.rawContent ? String(x.rawContent) : "",
+            status: x.status ? String(x.status) : "",
+            expires: x.expires ? String(x.expires) : "",
+          })),
+      )
+    } else {
+      setCerts([])
+    }
+  }
 
   const findCertificateId = (label?: string) => {
     if (!label) return null
@@ -186,15 +282,19 @@ export default function PartnerDetailModal({
     return found?.id ?? null
   }
 
+  const getUsageLabel = (usage?: string) => (usage || "Certificate").trim()
+
   const savePartner = async () => {
     if (subsidiary) return
     setSaving(true)
     setSaveError(null)
     const res = await apiClient.updatePartner(partner.id, {
       name: form.name.trim(),
+      code: form.code.trim().toUpperCase(),
+      type: form.type,
+      tier: form.tier,
       status: form.status,
       primaryContact: { name: form.name.trim(), email: form.email.trim() },
-      industry: form.type,
     })
     setSaving(false)
     if (!res.success || !res.data) {
@@ -205,12 +305,55 @@ export default function PartnerDetailModal({
     onSaved?.(res.data)
   }
 
+  const retryExternalSync = async () => {
+    setRetryingSync(true)
+    setSaveError(null)
+    const res = await apiClient.retryPartnerExternalSync(partner.id)
+    setRetryingSync(false)
+    if (!res.success || !res.data) {
+      setSaveError(res.error || "Failed to retry external sync")
+      return
+    }
+    if (res.data.deleted) {
+      onDeleted?.(partner.id)
+      onClose()
+      return
+    }
+    onSaved?.(res.data)
+  }
+
+  const handleDeletePartner = async () => {
+    setSaveError("Delete Partner is disabled to avoid accidental removal.")
+  }
+
+  const handleSetInactive = async () => {
+    if (subsidiary || partner.status === "inactive") return
+    const confirmed = window.confirm("Set this partner to inactive? External deletion will not be triggered.")
+    if (!confirmed) return
+    setInactivatingPartner(true)
+    setSaveError(null)
+    const res = await apiClient.updatePartner(partner.id, {
+      status: "inactive",
+    })
+    setInactivatingPartner(false)
+    if (!res.success || !res.data) {
+      setSaveError(res.error || "Failed to set partner inactive")
+      return
+    }
+    onSaved?.(res.data)
+  }
+
   const getProfileOwnerSubsidiaryId = (profileId: string) => {
     return partner.subsidiaries.find((sub) => sub.as2Profiles.some((profile) => profile.id === profileId))?.id || ""
   }
 
   const saveAs2Profile = async () => {
     if (!selectedAS2Profile) return
+    const formError = getAs2ProfileFormError(as2Form)
+    if (formError) {
+      setAs2Error(formError)
+      return
+    }
     const subsidiaryId = getProfileOwnerSubsidiaryId(selectedAS2Profile.id)
     if (!subsidiaryId) {
       setAs2Error("Unable to locate subsidiary for this AS2 profile")
@@ -220,6 +363,7 @@ export default function PartnerDetailModal({
     setAs2Error(null)
     const res = await apiClient.updateAs2Profile(partner.id, subsidiaryId, selectedAS2Profile.id, {
       name: as2Form.name.trim(),
+      as2Id: as2Form.as2Id.trim(),
       as2Url: as2Form.as2Url.trim(),
       as2Port: Number(as2Form.as2Port),
       senderId: as2Form.senderId.trim(),
@@ -260,38 +404,96 @@ export default function PartnerDetailModal({
 
   const openCertificateUpload = (usage: string, suggestedName?: string) => {
     setUploadCertificateError(null)
+    setUploadCertificateNotice(null)
+    setEditingCertificateId(null)
     setUploadCertificateUsage(usage)
     setUploadCertificateName(suggestedName || `${partner.name} - ${usage}`)
     setUploadCertificateType("X.509")
-    setUploadCertificateEnv("production")
     setUploadCertificateFile(null)
     setUploadCertificateRawContent("")
     setShowUploadCertificate(true)
   }
 
+  const openCertificateEditor = (cert: CertificateRecord) => {
+    setUploadCertificateError(null)
+    setUploadCertificateNotice(null)
+    setEditingCertificateId(cert.id)
+    setUploadCertificateUsage(cert.usage || "")
+    setUploadCertificateName(cert.name)
+    setUploadCertificateType(cert.type || "X.509")
+    setUploadCertificateFile(null)
+    setUploadCertificateRawContent(cert.rawContent || "")
+    setShowUploadCertificate(true)
+  }
+
   const handleUploadCertificate = async () => {
-    if ((!uploadCertificateFile && !uploadCertificateRawContent.trim()) || !uploadCertificateName.trim() || !uploadCertificateUsage.trim()) {
-      setUploadCertificateError("Please fill certificate name, usage and provide a file or raw certificate content.")
+    if (!uploadCertificateName.trim() || !uploadCertificateUsage.trim()) {
+      setUploadCertificateError("Please fill certificate name and usage.")
+      return
+    }
+    if (!editingCertificateId && (!uploadCertificateFile && !uploadCertificateRawContent.trim())) {
+      setUploadCertificateError("Please provide a certificate file or raw certificate content.")
       return
     }
     setUploadCertificateError(null)
+    setUploadCertificateNotice(null)
     setUploadingCertificate(true)
-    const res = await apiClient.uploadCertificate({
-      file: uploadCertificateFile,
-      rawContent: uploadCertificateRawContent.trim() || undefined,
-      name: uploadCertificateName.trim(),
-      partner: partner.name,
-      usage: uploadCertificateUsage.trim(),
-      type: uploadCertificateType,
-      environment: uploadCertificateEnv,
-    })
+    const normalizedRawContent = await deriveCertificateBase64(uploadCertificateFile, uploadCertificateRawContent)
+    const res = editingCertificateId
+      ? await apiClient.updateCertificate(editingCertificateId, {
+          name: uploadCertificateName.trim(),
+          usage: uploadCertificateUsage.trim(),
+          type: uploadCertificateType,
+          rawContent: normalizedRawContent,
+        })
+      : await apiClient.uploadCertificate({
+          file: uploadCertificateFile,
+          rawContent: normalizedRawContent,
+          name: uploadCertificateName.trim(),
+          partner: partner.name,
+          usage: uploadCertificateUsage.trim(),
+          type: uploadCertificateType,
+        })
     setUploadingCertificate(false)
     if (!res.success || !res.data) {
-      setUploadCertificateError(res.error || "Upload failed")
+      setUploadCertificateError(res.error || (editingCertificateId ? "Save failed" : "Upload failed"))
       return
     }
-    setCerts((prev) => [...prev, { id: res.data.id, name: String(res.data.name || ""), partner: String(res.data.partner || "") }])
+    await refreshCertificates()
+    const sync = !editingCertificateId ? (res.data as any).externalSync : null
+    if (!sync) {
+      setUploadCertificateNotice({ tone: "success", text: editingCertificateId ? "Certificate updated." : "Certificate uploaded.", retryAvailable: false })
+    } else if (!sync.triggered) {
+      setUploadCertificateNotice({
+        tone: "warning",
+        text: sync.message || "Certificate uploaded, but no linked partner sync was triggered.",
+        retryAvailable: false,
+      })
+    } else if (sync.syncStatus === "failed" || sync.lastError) {
+      setUploadCertificateNotice({
+        tone: "error",
+        text: sync.lastError || sync.message || "Certificate uploaded, but partner sync failed.",
+        retryAvailable: true,
+      })
+    } else if (sync.lastWarning || sync.syncStatus === "certificate_pending") {
+      setUploadCertificateNotice({
+        tone: "warning",
+        text: sync.lastWarning || sync.message || "Certificate uploaded. Partner sync completed with a warning.",
+        retryAvailable: false,
+      })
+    } else {
+      setUploadCertificateNotice({
+        tone: "success",
+        text: sync.message || "Certificate uploaded and partner sync completed.",
+        retryAvailable: false,
+      })
+    }
+    const fresh = await apiClient.getPartner(partner.id)
+    if (fresh.success && fresh.data) {
+      onSaved?.(fresh.data)
+    }
     setShowUploadCertificate(false)
+    setEditingCertificateId(null)
   }
 
   return (
@@ -323,6 +525,50 @@ export default function PartnerDetailModal({
             {!subsidiary && activeTab === "overview" && !editing && (
               <Button variant="outline" size="sm" className="bg-transparent" onClick={() => setEditing(true)}>
                 Edit Partner
+              </Button>
+            )}
+            {!subsidiary && activeTab === "as2" && selectedAS2Profile && !editingAs2 && (
+              <Button variant="outline" size="sm" className="bg-transparent" onClick={() => setEditingAs2(true)}>
+                Edit AS2 Config
+              </Button>
+            )}
+            {!subsidiary && activeTab === "certificates" && (
+              <Button variant="outline" size="sm" className="bg-transparent" onClick={() => openCertificateUpload("AS2 Communication", `${partner.name} - AS2 Communication`)}>
+                Upload Certificate
+              </Button>
+            )}
+            {!subsidiary && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-transparent"
+                onClick={retryExternalSync}
+                disabled={retryingSync || !canRetryExternalSync}
+              >
+                {retryingSync ? "Retrying…" : "Retry Sync"}
+              </Button>
+            )}
+            {!subsidiary && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-transparent"
+                onClick={handleSetInactive}
+                disabled={inactivatingPartner || partner.status === "inactive"}
+              >
+                {inactivatingPartner ? "Setting Inactive…" : partner.status === "inactive" ? "Already Inactive" : "Set Inactive"}
+              </Button>
+            )}
+            {!subsidiary && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-transparent text-destructive border-destructive/30 hover:bg-destructive/5"
+                onClick={handleDeletePartner}
+                disabled
+                title="Delete is disabled to avoid accidental remote deletion."
+              >
+                {deletingPartner ? "Deleting…" : "Delete Partner"}
               </Button>
             )}
             <button
@@ -447,7 +693,13 @@ export default function PartnerDetailModal({
                     </div>
                     <div>
                       <label className="block text-sm text-muted-foreground mb-1">Partner Code</label>
-                      <Input type="text" value={partner.code} disabled className="bg-secondary/30 font-mono" />
+                      <Input
+                        type="text"
+                        value={form.code}
+                        disabled={!editing}
+                        className={`${editing ? "" : "bg-secondary/30"} font-mono`}
+                        onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                      />
                     </div>
                     <div>
                       <label className="block text-sm text-muted-foreground mb-1">Email</label>
@@ -462,11 +714,37 @@ export default function PartnerDetailModal({
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm text-muted-foreground mb-1">Type</label>
-                        <Input type="text" value={getTypeLabel(form.type)} disabled className="bg-secondary/30" />
+                        {editing ? (
+                          <select
+                            value={form.type}
+                            onChange={(e) => setForm((prev) => ({ ...prev, type: e.target.value as TradingPartner["type"] }))}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          >
+                            <option value="platform">Platform</option>
+                            <option value="retailer">Retailer</option>
+                            <option value="van">VAN Provider</option>
+                            <option value="3pl">3PL</option>
+                            <option value="manufacturer">Manufacturer</option>
+                          </select>
+                        ) : (
+                          <Input type="text" value={getTypeLabel(form.type)} disabled className="bg-secondary/30" />
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm text-muted-foreground mb-1">Tier</label>
-                        <Input type="text" value={form.tier} disabled className="bg-secondary/30 capitalize" />
+                        {editing ? (
+                          <select
+                            value={form.tier}
+                            onChange={(e) => setForm((prev) => ({ ...prev, tier: e.target.value as TradingPartner["tier"] }))}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm capitalize"
+                          >
+                            <option value="enterprise">Enterprise</option>
+                            <option value="standard">Standard</option>
+                            <option value="basic">Basic</option>
+                          </select>
+                        ) : (
+                          <Input type="text" value={form.tier} disabled className="bg-secondary/30 capitalize" />
+                        )}
                       </div>
                     </div>
                   </div>
@@ -495,7 +773,7 @@ export default function PartnerDetailModal({
 
                   <div className="mt-6">
                     <h4 className="font-semibold text-foreground mb-3">Status</h4>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       {editing ? (
                         <select
                           value={form.status}
@@ -512,8 +790,47 @@ export default function PartnerDetailModal({
                           {form.status === "active" ? "Active" : "Inactive"}
                         </span>
                       )}
+                      <span className={`px-4 py-2 rounded-full text-sm font-semibold ${syncBadge.className}`}>
+                        {syncBadge.label}
+                      </span>
                     </div>
                     {saveError && <p className="text-xs text-destructive mt-2">{saveError}</p>}
+                  </div>
+
+                  <div className="mt-6 p-4 border border-border rounded-lg bg-background">
+                    <h4 className="font-semibold text-foreground mb-3">External Sync</h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">External Partner ID</p>
+                        <p className="font-mono text-foreground">{externalProfile.partnerId || "--"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Pending Action</p>
+                        <p className="font-mono text-foreground">{externalProfile.pendingAction || "--"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Last Attempt</p>
+                        <p className="font-mono text-foreground">{externalProfile.lastAttemptAt || "--"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Partner Sync</p>
+                        <p className="font-mono text-foreground">{externalProfile.partnerSyncStatus || "--"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Certificate Sync</p>
+                        <p className="font-mono text-foreground">{externalProfile.certificateSyncStatus || "--"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Last Success</p>
+                        <p className="font-mono text-foreground">{externalProfile.lastSyncedAt || "--"}</p>
+                      </div>
+                    </div>
+                    {externalProfile.lastError && (
+                      <p className="mt-3 text-sm text-rose-700">{externalProfile.lastError}</p>
+                    )}
+                    {externalProfile.lastWarning && (
+                      <p className="mt-3 text-sm text-yellow-700">{externalProfile.lastWarning}</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -618,6 +935,39 @@ export default function PartnerDetailModal({
                     }`}>
                       {selectedAS2Profile.status}
                     </span>
+                    <div className="flex items-center gap-2">
+                      {editingAs2 ? (
+                        <>
+                          <Button className="bg-primary hover:bg-primary/90" onClick={saveAs2Profile} disabled={as2Saving}>
+                            {as2Saving ? "Saving..." : "Save AS2 Config"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="bg-transparent"
+                            onClick={() => {
+                              setEditingAs2(false)
+                              setAs2Error(null)
+                              setAs2Form({
+                                name: selectedAS2Profile.name,
+                                as2Id: selectedAS2Profile.as2Id,
+                                as2Url: selectedAS2Profile.url,
+                                as2Port: String(selectedAS2Profile.as2Port || 443),
+                                senderId: selectedAS2Profile.senderId || "",
+                                senderQualifier: selectedAS2Profile.senderQualifier || "ZZ",
+                                receiverId: selectedAS2Profile.receiverId || "",
+                                receiverQualifier: selectedAS2Profile.receiverQualifier || "ZZ",
+                              })
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <Button variant="outline" className="bg-transparent" onClick={() => setEditingAs2(true)}>
+                          Edit AS2 Config
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   
                   <div className="p-6 space-y-6">
@@ -625,7 +975,13 @@ export default function PartnerDetailModal({
                       <div>
                         <label className="block text-sm text-muted-foreground mb-1">AS2 Identifier</label>
                         <div className="flex gap-2">
-                          <Input type="text" value={selectedAS2Profile.as2Id} disabled className="bg-secondary/30 font-mono" />
+                          <Input
+                            type="text"
+                            value={as2Form.as2Id}
+                            disabled={!editingAs2}
+                            className={`${editingAs2 ? "" : "bg-secondary/30"} font-mono`}
+                            onChange={(e) => setAs2Form((prev) => ({ ...prev, as2Id: e.target.value }))}
+                          />
                           <Button variant="outline" size="sm" className="bg-transparent" onClick={() => copyToClipboard(selectedAS2Profile.as2Id)}>
                             {copied ? "Copied" : "Copy"}
                           </Button>
@@ -657,6 +1013,9 @@ export default function PartnerDetailModal({
                           {copied ? "Copied" : "Copy"}
                         </Button>
                       </div>
+                      {editingAs2 && getAs2ProfileFormError(as2Form) && (
+                        <p className="mt-2 text-sm text-destructive">{getAs2ProfileFormError(as2Form)}</p>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-6">
@@ -793,36 +1152,6 @@ export default function PartnerDetailModal({
                     </div>
 
                     <div className="flex gap-3">
-                      {editingAs2 ? (
-                        <>
-                          <Button className="bg-primary hover:bg-primary/90" onClick={saveAs2Profile} disabled={as2Saving}>
-                            {as2Saving ? "Saving..." : "Save AS2 Config"}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="bg-transparent"
-                            onClick={() => {
-                              setEditingAs2(false)
-                              setAs2Error(null)
-                              setAs2Form({
-                                name: selectedAS2Profile.name,
-                                as2Url: selectedAS2Profile.url,
-                                as2Port: String(selectedAS2Profile.as2Port || 443),
-                                senderId: selectedAS2Profile.senderId || "",
-                                senderQualifier: selectedAS2Profile.senderQualifier || "ZZ",
-                                receiverId: selectedAS2Profile.receiverId || "",
-                                receiverQualifier: selectedAS2Profile.receiverQualifier || "ZZ",
-                              })
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <Button variant="outline" className="bg-transparent" onClick={() => setEditingAs2(true)}>
-                          Edit AS2 Config
-                        </Button>
-                      )}
                       <Button className="bg-accent hover:bg-accent/90 text-accent-foreground">Test Connection</Button>
                       <Button variant="outline" className="bg-transparent">View Logs</Button>
                       <Button variant="outline" className="text-amber-600 hover:bg-amber-50 bg-transparent">Inactive Profile</Button>
@@ -890,65 +1219,103 @@ export default function PartnerDetailModal({
                 </Button>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Card className="p-4 border border-border">
-                  <h4 className="font-semibold text-foreground mb-3">Encryption Certificates</h4>
-                  <div className="space-y-3">
-                    {getAllAS2Profiles().filter(p => p.encryptionCert).map((profile) => (
-                      <div key={`enc-${profile.id}`} className="p-3 bg-secondary/30 rounded-lg border border-border">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-foreground text-sm">{profile.encryptionCert}</p>
-                            <p className="text-xs text-muted-foreground">Used by: {profile.name}</p>
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="bg-transparent"
-                            disabled={!findCertificateId(profile.encryptionCert)}
-                            onClick={async () => {
-                              const certId = findCertificateId(profile.encryptionCert)
-                              if (!certId) return
-                              await apiClient.downloadCertificate(certId)
-                            }}
-                          >
-                            Download
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
+              <Card className="mb-4 border border-border bg-secondary/20 p-4">
+                <p className="text-sm font-medium text-foreground">Certificates are managed directly under the partner.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Upload, review, edit and reuse certificate content from one place.</p>
+              </Card>
 
-                <Card className="p-4 border border-border">
-                  <h4 className="font-semibold text-foreground mb-3">Signing Certificates</h4>
-                  <div className="space-y-3">
-                    {getAllAS2Profiles().filter(p => p.signingCert).map((profile) => (
-                      <div key={`sign-${profile.id}`} className="p-3 bg-secondary/30 rounded-lg border border-border">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-foreground text-sm">{profile.signingCert}</p>
-                            <p className="text-xs text-muted-foreground">Used by: {profile.name}</p>
+              {uploadCertificateNotice && (
+                <Card
+                  className={`mb-4 p-4 ${
+                    uploadCertificateNotice.tone === "success"
+                      ? "border-green-200 bg-green-50"
+                      : uploadCertificateNotice.tone === "error"
+                        ? "border-rose-200 bg-rose-50"
+                        : "border-yellow-200 bg-yellow-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p
+                      className={`text-sm ${
+                        uploadCertificateNotice.tone === "success"
+                          ? "text-green-800"
+                          : uploadCertificateNotice.tone === "error"
+                            ? "text-rose-800"
+                            : "text-yellow-800"
+                      }`}
+                    >
+                      {uploadCertificateNotice.text}
+                    </p>
+                    {uploadCertificateNotice.retryAvailable && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="bg-transparent"
+                        onClick={retryExternalSync}
+                        disabled={retryingSync}
+                      >
+                        {retryingSync ? "Retrying…" : "Retry Sync"}
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {certs.length === 0 ? (
+                <Card className="border border-dashed border-border p-8 text-center">
+                  <p className="text-sm text-foreground">No certificates uploaded yet.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Upload the first certificate to start external sync for AS2 partners.</p>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  {certs.map((cert) => (
+                    <Card key={cert.id} className="border border-border p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-semibold text-foreground">{cert.name}</h4>
+                            <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">{getUsageLabel(cert.usage)}</span>
+                            {cert.status && (
+                              <span className="rounded bg-secondary px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                                {cert.status}
+                              </span>
+                            )}
                           </div>
+                          <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                            <span>ID #{cert.id}</span>
+                            {cert.type && <span>Type: {cert.type}</span>}
+                            {cert.expires && <span>Expires: {cert.expires}</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button variant="outline" size="sm" className="bg-transparent" onClick={() => openCertificateEditor(cert)}>
+                            Edit
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
                             className="bg-transparent"
-                            disabled={!findCertificateId(profile.signingCert)}
-                            onClick={async () => {
-                              const certId = findCertificateId(profile.signingCert)
-                              if (!certId) return
-                              await apiClient.downloadCertificate(certId)
-                            }}
+                            onClick={() => setExpandedCertificateId((prev) => (prev === cert.id ? null : cert.id))}
                           >
+                            {expandedCertificateId === cert.id ? "Hide Content" : "View Content"}
+                          </Button>
+                          <Button variant="outline" size="sm" className="bg-transparent" onClick={async () => { await apiClient.downloadCertificate(cert.id) }}>
                             Download
                           </Button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </Card>
-              </div>
+                      {expandedCertificateId === cert.id && (
+                        <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3">
+                          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Certificate Content</p>
+                          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all text-xs font-mono text-foreground">
+                            {cert.rawContent || "No raw content stored for this certificate."}
+                          </pre>
+                        </div>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              )}
             </>
           )}
 
@@ -1100,16 +1467,15 @@ export default function PartnerDetailModal({
 
         {/* Footer */}
         <div className="flex gap-2 border-t border-border p-6 bg-card shrink-0">
-          {!subsidiary && (
-            editing ? (
-              <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={savePartner} disabled={saving}>
-                {saving ? "Saving..." : "Save Changes"}
-              </Button>
-            ) : (
-              <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={() => setEditing(true)}>
-                Edit Partner
-              </Button>
-            )
+          {!subsidiary && activeTab === "overview" && editing && (
+            <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={savePartner} disabled={saving}>
+              {saving ? "Saving..." : "Save Changes"}
+            </Button>
+          )}
+          {!subsidiary && activeTab === "as2" && selectedAS2Profile && editingAs2 && (
+            <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={saveAs2Profile} disabled={as2Saving}>
+              {as2Saving ? "Saving..." : "Save AS2 Config"}
+            </Button>
           )}
           <Button variant="outline" className="flex-1 bg-transparent" onClick={onClose}>
             Close
@@ -1132,7 +1498,7 @@ export default function PartnerDetailModal({
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <Card className="w-full max-w-xl space-y-4 p-6">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-foreground">Upload Certificate</h3>
+              <h3 className="font-semibold text-foreground">{editingCertificateId ? "Edit Certificate" : "Upload Certificate"}</h3>
               <button
                 type="button"
                 onClick={() => setShowUploadCertificate(false)}
@@ -1145,12 +1511,12 @@ export default function PartnerDetailModal({
             {uploadCertificateError && <p className="text-sm text-destructive">{uploadCertificateError}</p>}
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-foreground">Certificate File *</label>
+              <label className="mb-2 block text-sm font-medium text-foreground">Certificate File {editingCertificateId ? "(optional)" : "*"}</label>
               <Input type="file" accept=".pem,.cer,.crt,.cert,.pfx,.p12" disabled={uploadingCertificate} onChange={(e) => setUploadCertificateFile(e.target.files?.[0] ?? null)} />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-foreground">Certificate PEM / Base64 Content</label>
+              <label className="mb-2 block text-sm font-medium text-foreground">Certificate Content</label>
               <textarea
                 value={uploadCertificateRawContent}
                 onChange={(e) => setUploadCertificateRawContent(e.target.value)}
@@ -1158,6 +1524,7 @@ export default function PartnerDetailModal({
                 placeholder="-----BEGIN CERTIFICATE-----&#10;MIID...&#10;-----END CERTIFICATE-----"
                 className="min-h-40 w-full rounded-md border border-input bg-background p-3 text-xs font-mono"
               />
+              <p className="mt-1 text-xs text-muted-foreground">Uploaded or pasted certificate content is converted to Base64 automatically.</p>
             </div>
 
             <div>
@@ -1203,26 +1570,12 @@ export default function PartnerDetailModal({
               </div>
             </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-foreground">Environment *</label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2">
-                  <input type="radio" checked={uploadCertificateEnv === "production"} onChange={() => setUploadCertificateEnv("production")} />
-                  <span>Production</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="radio" checked={uploadCertificateEnv === "sandbox"} onChange={() => setUploadCertificateEnv("sandbox")} />
-                  <span>Sandbox</span>
-                </label>
-              </div>
-            </div>
-
             <div className="flex justify-end gap-3 pt-2">
               <Button variant="outline" className="bg-transparent" onClick={() => setShowUploadCertificate(false)} disabled={uploadingCertificate}>
                 Cancel
               </Button>
               <Button onClick={handleUploadCertificate} disabled={uploadingCertificate}>
-                {uploadingCertificate ? "Uploading..." : "Upload"}
+                {uploadingCertificate ? (editingCertificateId ? "Saving..." : "Uploading...") : (editingCertificateId ? "Save Certificate" : "Upload")}
               </Button>
             </div>
           </Card>

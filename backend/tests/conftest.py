@@ -8,6 +8,8 @@ os.environ.setdefault('DATABASE_URL', 'sqlite:///./test.db')
 os.environ.setdefault('AUTH_SECRET', 'test-secret')
 os.environ.setdefault('RATE_LIMIT_REQUESTS', '1000')
 os.environ.setdefault('RATE_LIMIT_WINDOW_SECONDS', '60')
+os.environ.setdefault('AUTO_SEED', 'false')
+os.environ.setdefault('PARTNER_SYNC_ENABLED', 'false')
 
 from app.db.base import Base  # noqa: E402
 from app.db.session import engine  # noqa: E402

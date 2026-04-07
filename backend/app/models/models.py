@@ -45,6 +45,8 @@ class Partner(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     code: Mapped[str] = mapped_column(String(20), index=True)
+    partner_type: Mapped[str] = mapped_column(String(20), default='retailer')
+    service_tier: Mapped[str] = mapped_column(String(20), default='standard')
     status: Mapped[str] = mapped_column(String(16), default='active')
     industry: Mapped[str] = mapped_column(String(50), default='retail')
     website: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -57,10 +59,21 @@ class Partner(Base):
     onboarding_start_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     step_completion_dates: Mapped[dict] = mapped_column(JSON, default=dict)
     api_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    channel_config: Mapped[dict] = mapped_column(JSON, default=dict)
+    external_partner_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    external_sync_status: Mapped[str] = mapped_column(String(20), default='not_synced', index=True)
+    external_partner_sync_status: Mapped[str] = mapped_column(String(20), default='not_synced', index=True)
+    external_certificate_sync_status: Mapped[str] = mapped_column(String(20), default='not_required', index=True)
+    external_pending_action: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, index=True)
+    external_last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    external_last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    external_last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    external_last_warning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     environment: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     subsidiaries = relationship('Subsidiary', cascade='all, delete-orphan', back_populates='partner')
+    sync_logs = relationship('PartnerSyncLog', cascade='all, delete-orphan', back_populates='partner')
 
 
 class Subsidiary(Base):
@@ -233,6 +246,25 @@ class IntegrationClient(Base):
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
+class PartnerSyncLog(Base):
+    __tablename__ = 'partner_sync_logs'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    partner_id: Mapped[str] = mapped_column(ForeignKey('partners.id', ondelete='CASCADE'), index=True)
+    action: Mapped[str] = mapped_column(String(16), index=True)
+    request_id: Mapped[str] = mapped_column(String(64), index=True)
+    request_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    response_payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    http_status: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    result: Mapped[str] = mapped_column(String(16), index=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attempt_no: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    partner = relationship('Partner', back_populates='sync_logs')
+
+
 class APIClient(Base):
     __tablename__ = 'api_clients'
 
@@ -242,7 +274,7 @@ class APIClient(Base):
     owner_user_id: Mapped[Optional[str]] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default='active')
     scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
-    environment: Mapped[str] = mapped_column(String(20), default='production')
+    environment: Mapped[str] = mapped_column(String(20), default='all')
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 

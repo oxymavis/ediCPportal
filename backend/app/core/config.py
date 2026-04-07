@@ -49,10 +49,23 @@ class Settings(BaseSettings):
     feature_connection_test_real: bool = True
     feature_api_docs_backend: bool = True
     feature_notif_sse: bool = True
+    api_test_endpoint: str = 'https://httpbin.org/get'
     sandbox_api_test_endpoint: str = 'https://httpbin.org/get'
     production_api_test_endpoint: str = 'https://httpbin.org/get'
     rate_limit_requests: int = 2000
     rate_limit_window_seconds: int = 60
+    partner_sync_enabled: bool = False
+    partner_sync_url: str = ''
+    partner_sync_username: str = ''
+    partner_sync_password: str = ''
+    partner_sync_sandbox_url: str = ''
+    partner_sync_sandbox_username: str = ''
+    partner_sync_sandbox_password: str = ''
+    partner_sync_production_url: str = ''
+    partner_sync_production_username: str = ''
+    partner_sync_production_password: str = ''
+    partner_sync_timeout_seconds: int = 10
+    partner_sync_verify_tls: bool = True
     auto_create_tables: bool = True
     auto_seed: bool = True
 
@@ -67,6 +80,21 @@ class Settings(BaseSettings):
     @property
     def parsed_api_ip_allowlist(self) -> list[str]:
         return [ip.strip() for ip in self.api_ip_allowlist.split(',') if ip.strip()]
+
+    def partner_sync_target(self, environment: str | None = None) -> dict[str, str | int | bool]:
+        del environment
+        return {
+            'environment': 'default',
+            'url': self.partner_sync_url or self.partner_sync_production_url or self.partner_sync_sandbox_url,
+            'username': self.partner_sync_username or self.partner_sync_production_username or self.partner_sync_sandbox_username,
+            'password': self.partner_sync_password or self.partner_sync_production_password or self.partner_sync_sandbox_password,
+            'timeout_seconds': self.partner_sync_timeout_seconds,
+            'verify_tls': self.partner_sync_verify_tls,
+        }
+
+    @property
+    def resolved_api_test_endpoint(self) -> str:
+        return self.api_test_endpoint or self.production_api_test_endpoint or self.sandbox_api_test_endpoint
 
 
 settings = Settings()

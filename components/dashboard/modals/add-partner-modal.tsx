@@ -22,12 +22,35 @@ const STEP_LABELS = [
 
 const AS2_QUALIFIER_OPTIONS = [...Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, "0")), "ZZ"]
 
+function getAs2ConfigError(formData: {
+  as2Id: string
+  as2Url: string
+  as2Port: string
+  senderId: string
+  receiverId: string
+}) {
+  if (!formData.as2Id.trim()) return "AS2 Identifier is required"
+  if (!formData.as2Url.trim()) return "AS2 Endpoint URL is required"
+  try {
+    const parsed = new URL(formData.as2Url.trim())
+    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname) {
+      return "AS2 Endpoint URL must be a valid http(s) URL"
+    }
+  } catch {
+    return "AS2 Endpoint URL must be a valid http(s) URL"
+  }
+  if (!formData.as2Port.trim()) return "AS2 Port is required"
+  if (!formData.senderId.trim()) return "Sender ID is required"
+  if (!formData.receiverId.trim()) return "Receiver ID is required"
+  return null
+}
+
 /** Normalize backend partner response to TradingPartner shape for list display */
 function normalizePartnerFromApi(p: any): any {
   const lifecycle = p.lifecycle || {}
   const channel = p.communicationChannel
   const channelObj = typeof channel === "string"
-    ? { type: channel, status: "configured" as const, config: p.apiConfig || {} }
+    ? { type: channel, status: "configured" as const, config: p.channelConfig || p.apiConfig || {} }
     : channel
   const subsidiaries = (p.subsidiaries ?? []).map((s: any) => ({
     ...s,
@@ -57,7 +80,18 @@ function normalizePartnerFromApi(p: any): any {
     subsidiaries,
     as2Profiles: subsidiaries.flatMap((s: any) => s.as2Profiles ?? []),
     documentTypes: subsidiaries[0]?.supportedDocTypes?.x12 ?? [],
-    lastSync: "--",
+    externalProfile: {
+      partnerId: p.externalProfile?.partnerId ?? null,
+      syncStatus: p.externalProfile?.syncStatus ?? "not_synced",
+      partnerSyncStatus: p.externalProfile?.partnerSyncStatus ?? "not_synced",
+      certificateSyncStatus: p.externalProfile?.certificateSyncStatus ?? "not_required",
+      pendingAction: p.externalProfile?.pendingAction ?? null,
+      lastAttemptAt: p.externalProfile?.lastAttemptAt ?? null,
+      lastSyncedAt: p.externalProfile?.lastSyncedAt ?? null,
+      lastError: p.externalProfile?.lastError ?? null,
+      lastWarning: p.externalProfile?.lastWarning ?? null,
+    },
+    lastSync: p.externalProfile?.lastSyncedAt ?? p.externalProfile?.lastAttemptAt ?? "--",
     transactionCount: 0,
   }
 }
@@ -89,8 +123,12 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
     sftpHost: "",
     sftpPort: "22",
     sftpUser: "",
+    sftpRemotePath: "",
     vanProvider: "",
     vanNetworkId: "",
+    vanTargetHost: "",
+    vanTargetPort: "",
+    vanUrlPath: "",
     // API channel config
     apiBaseUrl: "",
     apiWebhookUrl: "",
@@ -136,6 +174,15 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
     setError(null)
     setSaving(true)
 
+    if (formData.integrationType === "edi" && formData.channelType === "AS2") {
+      const as2Error = getAs2ConfigError(formData)
+      if (as2Error) {
+        setSaving(false)
+        setError(as2Error)
+        return
+      }
+    }
+
     const communicationChannel = formData.integrationType === "api" ? "REST_API" : formData.channelType
     const apiConfig =
       formData.integrationType === "api"
@@ -144,6 +191,28 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
             ...(formData.apiWebhookUrl ? { webhook: formData.apiWebhookUrl } : {}),
           }
         : undefined
+    const channelConfig =
+      formData.integrationType === "api"
+        ? {
+            baseUrl: formData.apiBaseUrl || "https://api.unis-edi.com/v1",
+            webhookUrl: formData.apiWebhookUrl || "",
+          }
+        : formData.channelType === "SFTP"
+          ? {
+              host: formData.sftpHost,
+              port: formData.sftpPort || "22",
+              username: formData.sftpUser,
+              remotePath: formData.sftpRemotePath,
+            }
+          : formData.channelType === "VAN"
+            ? {
+                provider: formData.vanProvider,
+                networkId: formData.vanNetworkId,
+                targetHost: formData.vanTargetHost,
+                targetPort: formData.vanTargetPort,
+                urlPath: formData.vanUrlPath,
+              }
+            : {}
 
     const subsidiaries: any[] = []
     if (formData.integrationType === "edi" && formData.channelType === "AS2" && formData.as2Id) {
@@ -183,6 +252,8 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
     const payload = {
       name: formData.name.trim(),
       code: formData.code.trim().toUpperCase(),
+      type: formData.type,
+      tier: formData.tier,
       primaryContact: { name: formData.name, email: formData.email },
       integrationType: formData.integrationType,
       communicationChannel,
@@ -190,6 +261,16 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
       currentStepId: 1,
       onboardingStartDate: new Date().toISOString().split("T")[0],
       stepCompletionDates: {},
+      channelConfig,
+      sftpHost: formData.sftpHost,
+      sftpPort: formData.sftpPort,
+      sftpUser: formData.sftpUser,
+      sftpRemotePath: formData.sftpRemotePath,
+      vanProvider: formData.vanProvider,
+      vanNetworkId: formData.vanNetworkId,
+      vanTargetHost: formData.vanTargetHost,
+      vanTargetPort: formData.vanTargetPort,
+      vanUrlPath: formData.vanUrlPath,
       ...(apiConfig ? { apiConfig } : {}),
       subsidiaries,
     }
@@ -210,9 +291,9 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
       case 2: return formData.integrationType !== ""
       case 3:
         if (formData.integrationType === "edi") {
-          if (formData.channelType === "AS2") return formData.as2Id && formData.as2Url && formData.as2Port && formData.senderId && formData.receiverId
+          if (formData.channelType === "AS2") return !getAs2ConfigError(formData)
           if (formData.channelType === "SFTP") return formData.sftpHost && formData.sftpUser
-          return formData.vanProvider
+          return formData.vanProvider && formData.vanTargetHost && formData.vanTargetPort
         }
         return true // API path has optional fields
       case 4: return formData.documentTypes.length > 0
@@ -378,10 +459,18 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
 
               {formData.channelType === "AS2" && (
                 <div className="space-y-4">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    Partner can be created before certificates are uploaded. External sync will begin after you upload the first certificate.
+                  </div>
+                  {getAs2ConfigError(formData) && (
+                    <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                      {getAs2ConfigError(formData)}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="as2Id">AS2 Identifier *</Label>
-                      <Input id="as2Id" placeholder="PARTNER-AS2-PROD" value={formData.as2Id} onChange={e => setFormData(p => ({ ...p, as2Id: e.target.value }))} className="font-mono" />
+                      <Input id="as2Id" placeholder="PARTNER-AS2" value={formData.as2Id} onChange={e => setFormData(p => ({ ...p, as2Id: e.target.value }))} className="font-mono" />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="as2Url">AS2 Endpoint URL *</Label>
@@ -447,6 +536,10 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
                     <Label>Username *</Label>
                     <Input placeholder="edi_user" value={formData.sftpUser} onChange={e => setFormData(p => ({ ...p, sftpUser: e.target.value }))} className="font-mono" />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Remote Path</Label>
+                    <Input placeholder="/inbound/unis" value={formData.sftpRemotePath} onChange={e => setFormData(p => ({ ...p, sftpRemotePath: e.target.value }))} className="font-mono" />
+                  </div>
                 </div>
               )}
 
@@ -467,6 +560,20 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
                       <Label>Network ID</Label>
                       <Input placeholder="NET-001" value={formData.vanNetworkId} onChange={e => setFormData(p => ({ ...p, vanNetworkId: e.target.value }))} className="font-mono" />
                     </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Target Host *</Label>
+                      <Input placeholder="van.partner.com" value={formData.vanTargetHost} onChange={e => setFormData(p => ({ ...p, vanTargetHost: e.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Target Port *</Label>
+                      <Input placeholder="443" value={formData.vanTargetPort} onChange={e => setFormData(p => ({ ...p, vanTargetPort: e.target.value }))} className="font-mono" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>URL Path</Label>
+                    <Input placeholder="/edi/receive" value={formData.vanUrlPath} onChange={e => setFormData(p => ({ ...p, vanUrlPath: e.target.value }))} />
                   </div>
                 </div>
               )}
@@ -565,12 +672,43 @@ export default function AddPartnerModal({ onClose, onSave }: AddPartnerModalProp
                     <span className="font-mono text-foreground">{formData.receiverId} ({formData.receiverQualifier})</span>
                   </div>
                 )}
+                {formData.integrationType === "edi" && formData.channelType === "AS2" && (
+                  <p className="text-xs text-amber-700">
+                    Certificate upload is the next step after Partner creation. The first external sync will be triggered from the certificate flow.
+                  </p>
+                )}
                 {formData.integrationType === "api" && (
                   <div className="grid grid-cols-2 gap-y-2 text-sm mt-2">
                     <span className="text-muted-foreground">Base URL:</span>
                     <span className="text-foreground">{formData.apiBaseUrl || "Default"}</span>
                     <span className="text-muted-foreground">Webhook:</span>
                     <span className="text-foreground">{formData.apiWebhookUrl || "Not configured"}</span>
+                  </div>
+                )}
+                {formData.integrationType === "edi" && formData.channelType === "SFTP" && (
+                  <div className="grid grid-cols-2 gap-y-2 text-sm mt-2">
+                    <span className="text-muted-foreground">Host:</span>
+                    <span className="font-mono text-foreground">{formData.sftpHost}</span>
+                    <span className="text-muted-foreground">Port:</span>
+                    <span className="font-mono text-foreground">{formData.sftpPort}</span>
+                    <span className="text-muted-foreground">Username:</span>
+                    <span className="font-mono text-foreground">{formData.sftpUser}</span>
+                    <span className="text-muted-foreground">Remote Path:</span>
+                    <span className="font-mono text-foreground">{formData.sftpRemotePath || "--"}</span>
+                  </div>
+                )}
+                {formData.integrationType === "edi" && formData.channelType === "VAN" && (
+                  <div className="grid grid-cols-2 gap-y-2 text-sm mt-2">
+                    <span className="text-muted-foreground">Provider:</span>
+                    <span className="text-foreground">{formData.vanProvider}</span>
+                    <span className="text-muted-foreground">Network ID:</span>
+                    <span className="font-mono text-foreground">{formData.vanNetworkId || "--"}</span>
+                    <span className="text-muted-foreground">Target Host:</span>
+                    <span className="font-mono text-foreground">{formData.vanTargetHost}</span>
+                    <span className="text-muted-foreground">Target Port:</span>
+                    <span className="font-mono text-foreground">{formData.vanTargetPort}</span>
+                    <span className="text-muted-foreground">URL Path:</span>
+                    <span className="font-mono text-foreground">{formData.vanUrlPath || "--"}</span>
                   </div>
                 )}
               </div>

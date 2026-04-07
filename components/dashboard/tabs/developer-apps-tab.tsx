@@ -26,7 +26,6 @@ type DeveloperClient = {
   name: string
   status: string
   scopes: string[]
-  environment: string
   created_at?: string | null
   last_used_at?: string | null
 }
@@ -39,7 +38,6 @@ export default function DeveloperAppsTab() {
   const [createdSecret, setCreatedSecret] = useState<{ clientId: string; clientSecret: string } | null>(null)
   const [form, setForm] = useState({
     name: "",
-    environment: "sandbox" as "production" | "sandbox" | "all",
     scopes: ["integrations:write", "transactions:read"] as string[],
   })
 
@@ -70,14 +68,14 @@ export default function DeveloperAppsTab() {
     e.preventDefault()
     setSubmitting(true)
     setCreatedSecret(null)
-    const res = await apiClient.createMyOauthClient(form)
+    const res = await apiClient.createMyOauthClient({ ...form })
     setSubmitting(false)
     if (!res.success || !res.data) {
       setError(res.error || "Failed to create app.")
       return
     }
     setCreatedSecret({ clientId: res.data.client_id, clientSecret: res.data.client_secret })
-    setForm({ name: "", environment: "sandbox", scopes: ["integrations:write", "transactions:read"] })
+    setForm({ name: "", scopes: ["integrations:write", "transactions:read"] })
     setError("")
     await loadClients()
   }
@@ -132,29 +130,16 @@ export default function DeveloperAppsTab() {
         )}
 
         <form onSubmit={handleCreate} className="mt-6 space-y-5">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-1">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">App Name</label>
               <Input
                 value={form.name}
                 onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="OMS Production Connector"
+                placeholder="OMS Connector"
                 required
                 disabled={submitting}
               />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Environment</label>
-              <select
-                value={form.environment}
-                onChange={(e) => setForm((prev) => ({ ...prev, environment: e.target.value as "production" | "sandbox" | "all" }))}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                disabled={submitting}
-              >
-                <option value="sandbox">Sandbox</option>
-                <option value="production">Production</option>
-                <option value="all">All</option>
-              </select>
             </div>
           </div>
 
@@ -185,11 +170,11 @@ export default function DeveloperAppsTab() {
       </section>
 
       <section className="rounded-2xl border border-border bg-card p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h3 className="text-lg font-semibold text-foreground">My Apps</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Each app is isolated by its own client credentials and environment.</p>
-          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">My Apps</h3>
+              <p className="mt-1 text-sm text-muted-foreground">Each app is isolated by its own client credentials and scopes.</p>
+            </div>
           <Button variant="outline" onClick={() => void loadClients()} disabled={loading}>
             Refresh
           </Button>
@@ -208,7 +193,6 @@ export default function DeveloperAppsTab() {
                     <div className="flex items-center gap-2">
                       <p className="font-semibold text-foreground">{client.name}</p>
                       <Badge variant={client.status === "active" ? "default" : "secondary"}>{client.status}</Badge>
-                      <Badge variant="outline">{client.environment}</Badge>
                     </div>
                     <p className="font-mono text-xs text-muted-foreground">{client.client_id}</p>
                     <p className="text-xs text-muted-foreground">

@@ -118,11 +118,11 @@ def revoke_token(token: str = Form(...), db: Session = Depends(get_db)):
 def create_api_client(
     name: str = Form(...),
     scopes: str = Form(...),
-    environment: str = Form(default='production'),
+    environment: str = Form(default='all'),
     db: Session = Depends(get_db),
     _admin: None = Depends(require_oauth_admin),
 ):
-    if environment not in {'production', 'sandbox', 'all'}:
+    if environment != 'all':
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid environment')
     client_scopes = _validate_client_scopes(scopes.split(' '))
     client, client_secret = _create_client(name=name, scopes=client_scopes, environment=environment)

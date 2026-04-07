@@ -11,7 +11,6 @@ export default function SidebarNav({
     { id: "dashboard", label: "Dashboard" },
     { id: "developer-apps", label: "Developer Apps" },
     { id: "partners", label: "Trading Partners" },
-    { id: "certificates", label: "Certificates" },
     { id: "specifications", label: "Message Specifications" },
     { id: "api-docs", label: "API Documentation" },
     { id: "connection-testing", label: "Connection Testing" },

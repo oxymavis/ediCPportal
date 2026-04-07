@@ -16,7 +16,7 @@ interface Notification {
   time: string
   read: boolean
   archived: boolean
-  environment: "production" | "sandbox"
+  environment: string
   action?: {
     label: string
     link: string
@@ -30,7 +30,6 @@ interface Notification {
 }
 
 export default function NotificationsTab() {
-  const [environment, setEnvironment] = useState<"production" | "sandbox">("production")
   const [notifications, setNotifications] = useState<Notification[]>([])
 
   useEffect(() => {
@@ -49,10 +48,9 @@ export default function NotificationsTab() {
   const [showArchived, setShowArchived] = useState(false)
 
   const filteredNotifications = notifications.filter((notif) => {
-    const envMatch = notif.environment === environment
     const typeMatch = filterType === "all" || notif.type === filterType
     const archivedMatch = showArchived ? notif.archived : !notif.archived
-    return envMatch && typeMatch && archivedMatch
+    return typeMatch && archivedMatch
   })
 
   const getIcon = (type: NotificationType) => {
@@ -88,7 +86,7 @@ export default function NotificationsTab() {
     }
   }
 
-  const unreadCount = notifications.filter((n) => !n.read && !n.archived && n.environment === environment).length
+  const unreadCount = notifications.filter((n) => !n.read && !n.archived).length
 
   const handleMarkAsRead = async (id: number) => {
     const res = await apiClient.markNotificationRead(id)
@@ -96,7 +94,7 @@ export default function NotificationsTab() {
   }
 
   const handleMarkAllAsRead = async () => {
-    const res = await apiClient.markAllNotificationsRead(environment)
+    const res = await apiClient.markAllNotificationsRead()
     if (res.success) refetchNotifications()
   }
 
@@ -125,38 +123,6 @@ export default function NotificationsTab() {
           </div>
           <p className="text-muted-foreground">Stay updated on important events and alerts</p>
         </div>
-        {/* Environment Toggle */}
-        <div className="flex items-center gap-2 bg-secondary rounded-lg p-1">
-          <button
-            onClick={() => setEnvironment("production")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              environment === "production"
-                ? "bg-green-600 text-white"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Production
-          </button>
-          <button
-            onClick={() => setEnvironment("sandbox")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              environment === "sandbox"
-                ? "bg-amber-500 text-white"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Sandbox
-          </button>
-        </div>
-      </div>
-
-      {/* Environment Indicator */}
-      <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
-        environment === "production" 
-          ? "bg-green-50 text-green-700 border border-green-200" 
-          : "bg-amber-50 text-amber-700 border border-amber-200"
-      }`}>
-        Currently viewing: <span className="font-bold uppercase">{environment}</span> notifications
       </div>
 
       {/* Filters and Actions */}

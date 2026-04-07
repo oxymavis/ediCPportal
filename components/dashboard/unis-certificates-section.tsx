@@ -19,17 +19,15 @@ interface CertificateItem {
 }
 
 interface UNISCertificatesSectionProps {
-  environment: "production" | "sandbox"
   certificates: CertificateItem[]
 }
 
-export default function UNISCertificatesSection({ environment, certificates }: UNISCertificatesSectionProps) {
+export default function UNISCertificatesSection({ certificates }: UNISCertificatesSectionProps) {
   const [search, setSearch] = useState("")
 
   const unisCertificates = useMemo(() => {
     const q = search.trim().toLowerCase()
     return certificates.filter((c) => {
-      if (c.environment !== environment) return false
       if (!c.partner.toLowerCase().includes("unis")) return false
       if (!q) return true
       return (
@@ -38,7 +36,7 @@ export default function UNISCertificatesSection({ environment, certificates }: U
         c.fingerprint.toLowerCase().includes(q)
       )
     })
-  }, [certificates, environment, search])
+  }, [certificates, search])
 
   const handleDownload = async (cert: CertificateItem) => {
     await apiClient.downloadCertificate(cert.id)
@@ -50,7 +48,7 @@ export default function UNISCertificatesSection({ environment, certificates }: U
         <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="font-semibold text-foreground">UNIS Certificates</h3>
-            <p className="text-sm text-muted-foreground">Data source: database ({environment})</p>
+            <p className="text-sm text-muted-foreground">Data source: database</p>
           </div>
         </div>
 
@@ -68,7 +66,7 @@ export default function UNISCertificatesSection({ environment, certificates }: U
               <div key={cert.id} className="flex items-center justify-between rounded-md border border-border bg-background p-3">
                 <div>
                   <p className="font-medium text-foreground">{cert.name}</p>
-                  <p className="text-xs text-muted-foreground">{cert.serialNumber} | {cert.usage} | expires {cert.expires}</p>
+                  <p className="text-xs text-muted-foreground">{cert.serialNumber} | {cert.environment} | {cert.usage} | expires {cert.expires}</p>
                 </div>
                 <Button size="sm" variant="outline" className="bg-transparent" onClick={() => handleDownload(cert)}>
                   Download

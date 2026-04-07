@@ -141,11 +141,7 @@ def _as2_steps(host: str, port: int, as2_id: str, payload: dict) -> list[tuple[s
 
 @router.post('/as2/run')
 def run_as2_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session = Depends(get_db), actor=Depends(get_actor)):
-    env = payload.get('environment', 'production')
-    if actor.get('kind') == 'oauth':
-        client_env = actor['client'].environment
-        if client_env != 'all' and client_env != env:
-            return fail('Client environment is not allowed', 'CONN_ENV_FORBIDDEN')
+    env = payload.get('environment', 'default')
 
     partner, partner_err = _check_partner_for_test(db, payload.get('partnerId'), 'edi')
     if partner_err:
@@ -203,11 +199,7 @@ def run_as2_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session
 
 @router.post('/api/run')
 def run_api_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session = Depends(get_db), actor=Depends(get_actor)):
-    env = payload.get('environment', 'production')
-    if actor.get('kind') == 'oauth':
-        client_env = actor['client'].environment
-        if client_env != 'all' and client_env != env:
-            return fail('Client environment is not allowed', 'CONN_ENV_FORBIDDEN')
+    env = payload.get('environment', 'default')
 
     partner, partner_err = _check_partner_for_test(db, payload.get('partnerId'), 'api')
     if partner_err:
@@ -216,7 +208,7 @@ def run_api_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session
     endpoint = (
         payload.get('endpoint')
         or ((partner.api_config or {}).get('baseUrl') if partner else None)
-        or (settings.production_api_test_endpoint if env == 'production' else settings.sandbox_api_test_endpoint)
+        or settings.resolved_api_test_endpoint
     )
     if not endpoint:
         return fail('Missing endpoint for API connection test', 'CONN_VALIDATION')
@@ -435,7 +427,7 @@ def create_document_test(payload: dict, _csrf: None = Depends(require_csrf), db:
     row = DocumentTestReport(
         id=report_id,
         partner_id=payload.get('partnerId'),
-        environment=payload.get('environment', 'production'),
+        environment=payload.get('environment', 'default'),
         message_type=payload.get('messageType', '850'),
         status=status,
         errors=errors,
