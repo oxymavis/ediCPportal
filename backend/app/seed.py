@@ -135,9 +135,9 @@ def _seed_partners(db: Session) -> None:
             contact_phone="+1-800-925-6278",
             integration_type="edi",
             communication_channel="AS2",
-            current_step_id=5,
+            current_step_id=4,
             onboarding_start_date="2024-01-01",
-            step_completion_dates={"1": "2024-01-01", "2": "2024-01-15", "3": "2024-01-22", "4": "2024-01-28", "5": "2024-02-03"},
+            step_completion_dates={"1": "2024-01-01", "2": "2024-01-22", "3": "2024-01-28", "4": "2024-02-03"},
             api_config=None,
             environment="production",
         )

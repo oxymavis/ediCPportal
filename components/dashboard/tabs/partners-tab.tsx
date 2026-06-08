@@ -83,7 +83,7 @@ interface TradingPartner {
   status: "active" | "inactive"
   integrationType: "api" | "edi"
   communicationChannel?: CommunicationChannel
-  currentStepId: number // 1-5 (or 6 = fully live)
+  currentStepId: number // 1-4 (4 = fully live)
   onboardingStartDate: string
   stepCompletionDates?: Record<number, string>
   subsidiaries: Subsidiary[]
@@ -299,9 +299,9 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
     const matchesType = filterType === "all" || partner.type === filterType
     const matchesIntegration = filterIntegration === "all" || partner.integrationType === filterIntegration
     const matchesStage = filterStage === "all" ||
-      (filterStage === "setup" && partner.currentStepId <= 2) ||
-      (filterStage === "testing" && (partner.currentStepId === 3 || partner.currentStepId === 4)) ||
-      (filterStage === "live" && partner.currentStepId >= 5)
+      (filterStage === "setup" && partner.currentStepId === 1) ||
+      (filterStage === "testing" && (partner.currentStepId === 2 || partner.currentStepId === 3)) ||
+      (filterStage === "live" && partner.currentStepId >= 4)
     const matchesCertFilters = partnerCertificates.some((cert) => {
       const statusOk = filterCertStatus === "all" || cert.status === filterCertStatus
       const usageOk = filterCertUsage === "all" || cert.usage === filterCertUsage
@@ -316,9 +316,9 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
   })
 
   const stageCount = {
-    setup: partners.filter(p => p.currentStepId <= 2).length,
-    testing: partners.filter(p => p.currentStepId === 3 || p.currentStepId === 4).length,
-    live: partners.filter(p => p.currentStepId >= 5).length,
+    setup: partners.filter(p => p.currentStepId === 1).length,
+    testing: partners.filter(p => p.currentStepId === 2 || p.currentStepId === 3).length,
+    live: partners.filter(p => p.currentStepId >= 4).length,
   }
 
   return (
@@ -501,11 +501,11 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                    partner.currentStepId >= 5 ? "bg-green-50 text-green-700" :
-                    partner.currentStepId >= 3 ? "bg-amber-50 text-amber-700" :
+                    partner.currentStepId >= 4 ? "bg-green-50 text-green-700" :
+                    partner.currentStepId >= 2 ? "bg-amber-50 text-amber-700" :
                     "bg-slate-50 text-slate-700"
                   }`}>
-                    {partner.currentStepId >= 6 ? "Live" : `Step ${partner.currentStepId}/5`}
+                    {partner.currentStepId >= 4 ? "Live" : `Step ${Math.min(partner.currentStepId, 4)}/4`}
                   </span>
                   <Button
                     variant="outline"
@@ -718,7 +718,7 @@ export default function PartnersTab({ onNavigate }: { onNavigate?: (tab: string)
                 </div>
                 {!partner.communicationChannel && (
                   <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <p className="text-sm text-amber-700">API channel not yet configured. Complete Communication Setup to proceed.</p>
+                    <p className="text-sm text-amber-700">API channel not yet configured. Complete partner setup to proceed.</p>
                   </div>
                 )}
               </div>

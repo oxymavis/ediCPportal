@@ -8,6 +8,7 @@ import NotificationsTab from "./tabs/notifications-tab"
 import SpecificationsTab from "./tabs/specifications-tab"
 import ApiDocsTab from "./tabs/api-docs-tab"
 import ConnectionTestingTab from "./tabs/connection-testing-tab"
+import IntegrationValidationTab from "./tabs/integration-validation-tab"
 
 interface DashboardContentProps {
   activeTab: string
@@ -31,6 +32,8 @@ export default function DashboardContent({ activeTab, onNavigate }: DashboardCon
         return <TransactionsTab />
       case "connection-testing":
         return <ConnectionTestingTab />
+      case "integration-validation":
+        return <IntegrationValidationTab />
       case "notifications":
         return <NotificationsTab />
       default:

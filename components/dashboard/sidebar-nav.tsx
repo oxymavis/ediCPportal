@@ -14,6 +14,7 @@ export default function SidebarNav({
     { id: "specifications", label: "Message Specifications" },
     { id: "api-docs", label: "API Documentation" },
     { id: "connection-testing", label: "Connection Testing" },
+    { id: "integration-validation", label: "Integration Validation" },
     { id: "transactions", label: "Transactions" },
     { id: "notifications", label: "Notifications" },
   ]

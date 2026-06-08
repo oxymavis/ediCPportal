@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import base64
 from uuid import uuid4
 from sqlalchemy.orm import Session
 from passlib.hash import pbkdf2_sha256
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from cryptography.x509.oid import NameOID
-from datetime import datetime, timedelta
 
+from app.routers import connection_testing
 from app.db.session import SessionLocal
 from app.models import User
 
@@ -102,62 +97,86 @@ def test_api_docs_crud_and_queries(client):
     assert samples.status_code == 200 and len(samples.json()['data']) == 2
 
 
-def test_connection_testing_and_reports(client):
+def test_connection_testing_and_reports(client, monkeypatch):
     headers = _auth(client)
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public_key = private_key.public_key()
-    subject = issuer = x509.Name(
-        [
-            x509.NameAttribute(NameOID.COUNTRY_NAME, 'US'),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'Test'),
-            x509.NameAttribute(NameOID.COMMON_NAME, 'test.local'),
-        ]
-    )
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(public_key)
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.utcnow() - timedelta(days=1))
-        .not_valid_after(datetime.utcnow() + timedelta(days=365))
-        .sign(private_key, hashes.SHA256())
-    )
-    signed_payload = 'hello-as2'
-    signature = private_key.sign(signed_payload.encode('utf-8'), padding.PKCS1v15(), hashes.SHA256())
-    encrypted = public_key.encrypt(
-        b'secret-message',
-        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-    )
-    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode('utf-8')
-    pk_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode('utf-8')
+    monkeypatch.setattr(connection_testing.settings, 'as2_connectivity_url', 'https://webmethods.example.test/invoke/UNIS_EDI_PORTAL.service:AS2_Connectivity_API')
+    monkeypatch.setattr(connection_testing.settings, 'as2_connectivity_authorization', 'Basic test-token')
+
+    class DummyResponse:
+        status_code = 200
+        headers = {'content-type': 'application/json'}
+        text = '{"ok": true}'
+
+        def __init__(self, body=None):
+            self._body = body or {'ok': True}
+
+        def json(self):
+            return self._body
+
+    class DummyClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, **kwargs):
+            if 'webmethods.example.test' in str(url):
+                assert kwargs['headers']['Authorization'] == 'Basic test-token'
+                assert kwargs['json']['Data']['partnerName'] == 'TEST-PARTNER'
+                assert kwargs['json']['Data']['partnerAS2Info']['id'] == 'TEST-AS2'
+                return DummyResponse(
+                    {
+                        'success': True,
+                        'message': 'AS2 communication successful, MDN sent',
+                        'bizDocInternalID': 'biz-123',
+                        'UNIS_SendMDN_MessageID': '<unis-mdn-123>',
+                        'PartnerMessageID': '<partner-msg-123>',
+                    }
+                )
+            return DummyResponse({'ok': True})
+
+        def get(self, url, **kwargs):
+            return DummyResponse({'ok': True})
+
+    monkeypatch.setattr(connection_testing.httpx, 'Client', DummyClient)
 
     as2 = client.post(
         '/v1/connection-testing/as2/run',
         headers=headers,
         json={
             'environment': 'sandbox',
-            'host': 'localhost',
-            'port': 443,
-            'as2Id': 'TEST-AS2',
-            'signedPayload': signed_payload,
-            'signatureBase64': base64.b64encode(signature).decode('utf-8'),
-            'signerCertPem': cert_pem,
-            'encryptedBase64': base64.b64encode(encrypted).decode('utf-8'),
-            'decryptPrivateKeyPem': pk_pem,
-            'mdnUrl': 'https://httpbin.org/status/200',
-            'ackUrl': 'https://httpbin.org/anything/ACK-997',
+            'partnerName': 'TEST-PARTNER',
+            'partnerAS2Id': 'TEST-AS2',
+            'contentType': 'application/EDI-X12',
+            'stream': 'ISA*00*          *00*          *ZZ*UNIS           *ZZ*PARTNER        *260521*1200*U*00401*000000001*0*T*>~',
         },
     )
     assert as2.status_code == 200 and as2.json()['success'] is True
     run_id = as2.json()['data']['runId']
     run_detail = client.get(f'/v1/connection-testing/runs/{run_id}')
     assert run_detail.status_code == 200
-    assert len(run_detail.json()['data']['steps']) == 7
+    assert len(run_detail.json()['data']['steps']) == 4
+    assert run_detail.json()['data']['run']['summary']['PartnerMessageID'] == '<partner-msg-123>'
+
+    raw_response = connection_testing._parse_as2_connectivity_response(
+        type(
+            'RawResponse',
+            (),
+            {
+                'text': '{\r\n  "success":true,\r\n  "message": AS2 communication successful, MDN sent,\r\n  "bizDocInternalID": m1e0j200jp918nsb00008f4t,\r\n  "UNIS_SendMDN_MessageID": <unis-mdn-123>,\r\n  "PartnerMessageID": %PartnerMessageID%\r\n}\r\n',
+                'json': lambda self: (_ for _ in ()).throw(ValueError('invalid json')),
+            },
+        )()
+    )
+    assert raw_response['success'] is True
+    assert raw_response['message'] == 'AS2 communication successful, MDN sent'
+    assert raw_response['bizDocInternalID'] == 'm1e0j200jp918nsb00008f4t'
+    assert raw_response['UNIS_SendMDN_MessageID'] == '<unis-mdn-123>'
+    assert raw_response['PartnerMessageID'] == ''
 
     api_run = client.post(
         '/v1/connection-testing/api/run',

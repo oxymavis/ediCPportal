@@ -272,6 +272,28 @@ export const apiClient = {
     return download(`/v1/specifications/unis/${code}/download`, `unis-${code}.txt`)
   },
 
+  // Integration validation
+  uploadIntegrationValidationSpec(files: File[]) {
+    const formData = new FormData()
+    files.forEach((file) => formData.append("specFiles", file))
+    return request<any>("/v1/integration-validation/spec/upload", { method: "POST", body: formData })
+  },
+
+  getIntegrationValidationSpec(specId: string) {
+    return request<any>(`/v1/integration-validation/spec/${specId}`)
+  },
+
+  validateIntegrationSpec(payload: { specId: string; ediMessage: string }) {
+    return request<any>("/v1/integration-validation/validate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  downloadIntegrationValidationReport(downloadPath: string) {
+    return download(downloadPath, "edi-validation-report.md")
+  },
+
   // Transactions
   getTransactions(query?: Record<string, string>) {
     const search = query ? `?${new URLSearchParams(query).toString()}` : ""

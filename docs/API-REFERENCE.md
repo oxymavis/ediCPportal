@@ -222,64 +222,93 @@ Endpoints:
 
 ## 11. Integrations APIs (push ingestion)
 
-OAuth scope:
-- `integrations:write` (or temporary `x-api-key` fallback)
+完整对接说明、字段表、生命周期流程及错误处理示例见
+[Transaction Push API 对接文档](./TRANSACTION-PUSH-API.md)。
+
+Authentication:
+- `x-api-key` is required.
 
 Endpoints:
-- `POST /v1/integrations/events`
-- `POST /v1/integrations/events/batch`
+- `POST /v1/integrations/transactions`
+- `POST /v1/integrations/transactions/{transactionId}/system-events`
+- `GET /v1/integrations/transactions/{transactionId}/system-events`
+- `GET /v1/integrations/transactions/{transactionId}/timeline`
 
-Environment isolation:
-- OAuth client `environment=sandbox` can only push `environment=sandbox` events.
-- OAuth client `environment=production` can only push `environment=production` events.
-- `environment=all` can push both.
+### 11.1 Transaction ingestion request schema
 
-### 11.1 Single event request schema
+`POST /v1/integrations/transactions`
 
 ```json
 {
-  "idempotencyKey": "evt-20260303-0001",
+  "idempotencyKey": "txn-20260608-0001",
   "sourceSystem": "edi",
   "environment": "production",
   "partner": "Walmart",
-  "docType": "856",
+  "docType": "850",
   "direction": "outbound",
   "status": "completed",
-  "occurredAt": "2026-03-03T10:10:00Z",
-  "businessRefs": {
-    "poNo": "PO-1001",
-    "shipmentNo": "SHP-2001"
-  },
-  "controlRefs": {
-    "isaControlNo": "000000123",
-    "gsControlNo": "987",
-    "stControlNo": "0001"
-  },
-  "externalEventId": "oms-msg-778899",
-  "rawPayload": {
-    "records": 2,
-    "senderId": "OMS-A",
-    "receiverId": "UNIS"
-  }
+  "occurredAt": "2026-06-08T10:00:00Z",
+  "businessRefs": {"poNo": "PO-1001"},
+  "controlRefs": {"isaControlNo": "000000001"},
+  "externalEventId": "wm-tn-123",
+  "payloadFormat": "x12",
+  "rawContent": "ISA*00*...~",
+  "rawPayload": {"senderId": "UNIS", "receiverId": "WMT"}
 }
 ```
 
-### 11.2 Single event response
+The response returns one `transactionId`. Every internal system must use that same ID when reporting its processing result.
+
+### 11.2 System event request schema
+
+`POST /v1/integrations/transactions/{transactionId}/system-events`
 
 ```json
 {
-  "success": true,
-  "data": {
-    "success": true,
-    "transactionId": "TRX-856-7ab4e9f1d2",
-    "linking": {
-      "linked": true,
-      "relatedTransactionIds": ["TRX-850-4c91f0aa1b"],
-      "reason": "linked"
+  "idempotencyKey": "event-wms-create-0001",
+  "system": "wms",
+  "stage": "create_warehouse_order",
+  "eventType": "processing",
+  "status": "failed",
+  "occurredAt": "2026-06-08T10:05:00Z",
+  "message": "Warehouse order creation failed",
+  "inputFormat": "json",
+  "inputData": {
+    "orderNo": "SO-1001",
+    "warehouseOrderNo": ""
+  },
+  "outputFormat": "json",
+  "outputData": {
+    "accepted": false
+  },
+  "errors": [
+    {
+      "code": "WMS_REQUIRED_FIELD",
+      "message": "warehouseOrderNo is required",
+      "field": "warehouseOrderNo",
+      "severity": "error",
+      "retryable": true,
+      "details": {}
     }
+  ],
+  "durationMs": 95,
+  "traceId": "wms-trace-001",
+  "attemptNo": 1,
+  "isFinal": false,
+  "metadata": {
+    "service": "wms-order-service"
   }
 }
 ```
+
+Each system event stores its own input, output, status, errors, duration and retry attempt. Platform status is normalized to `received`, `processing`, `completed`, or `failed`.
+
+### 11.3 Lifecycle queries
+
+- `GET /v1/integrations/transactions/{transactionId}/system-events` returns all per-system events.
+- `GET /v1/integrations/transactions/{transactionId}/timeline` returns the original transaction plus all system events and aggregated errors.
+
+Batch ingestion, job polling and batch Webhook are not exposed in v1.
 
 ## 12. Transaction relation query
 

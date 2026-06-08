@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     api_test_endpoint: str = 'https://httpbin.org/get'
     sandbox_api_test_endpoint: str = 'https://httpbin.org/get'
     production_api_test_endpoint: str = 'https://httpbin.org/get'
+    as2_connectivity_sandbox_url: str = 'https://edi-staging.item.com:5555/invoke/UNIS_EDI_PORTAL.service:AS2_Connectivity_API'
+    as2_connectivity_production_url: str = 'https://edi-prod.item.com:443/invoke/UNIS_EDI_PORTAL.service:AS2_Connectivity_API'
+    as2_connectivity_url: str = ''
+    as2_connectivity_authorization: str = ''
+    as2_connectivity_username: str = ''
+    as2_connectivity_password: str = ''
+    as2_connectivity_timeout_seconds: int = 30
+    as2_connectivity_verify_tls: bool = True
     rate_limit_requests: int = 2000
     rate_limit_window_seconds: int = 60
     partner_sync_enabled: bool = False
@@ -95,6 +103,18 @@ class Settings(BaseSettings):
     @property
     def resolved_api_test_endpoint(self) -> str:
         return self.api_test_endpoint or self.production_api_test_endpoint or self.sandbox_api_test_endpoint
+
+    def as2_connectivity_target(self, environment: str | None = None) -> dict[str, str | int | bool]:
+        env = (environment or '').lower()
+        env_url = self.as2_connectivity_production_url if env in {'production', 'prod'} else self.as2_connectivity_sandbox_url
+        return {
+            'url': self.as2_connectivity_url or env_url,
+            'authorization': self.as2_connectivity_authorization,
+            'username': self.as2_connectivity_username,
+            'password': self.as2_connectivity_password,
+            'timeout_seconds': self.as2_connectivity_timeout_seconds,
+            'verify_tls': self.as2_connectivity_verify_tls,
+        }
 
 
 settings = Settings()

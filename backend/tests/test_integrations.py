@@ -2,43 +2,73 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-
-def _auth_user(client):
-    email = f'integration-{uuid4().hex[:8]}@example.com'
-    r = client.post(
-        '/v1/auth/register',
-        json={'name': 'Integration User', 'email': email, 'password': 'Password1', 'confirmPassword': 'Password1'},
-    )
-    assert r.status_code == 200
-    assert r.json()['success'] is True
+from app.db.session import SessionLocal
+from app.models import Transaction, TransactionSystemEvent
 
 
-def _event(
+def _transaction_push(
     *,
     idempotency_key: str,
-    doc_type: str,
-    partner: str = 'Walmart',
-    env: str = 'production',
+    doc_type: str = '850',
+    direction: str = 'inbound',
+    status: str = 'received',
+    raw_content: str = 'ISA*00*          *00*          *ZZ*SENDER         *ZZ*RECEIVER       *260608*1200*U*00401*000000001*0*T*>~',
     refs: dict | None = None,
-    source: str = 'edi',
 ):
     return {
         'idempotencyKey': idempotency_key,
-        'sourceSystem': source,
-        'environment': env,
-        'partner': partner,
+        'sourceSystem': 'edi',
+        'environment': 'production',
+        'partner': 'Walmart',
         'docType': doc_type,
-        'direction': 'outbound',
-        'status': 'completed',
-        'occurredAt': '2026-03-03T10:00:00Z',
+        'direction': direction,
+        'status': status,
+        'occurredAt': '2026-06-08T10:00:00Z',
         'businessRefs': refs or {},
         'controlRefs': {'isaControlNo': f'ISA-{idempotency_key[-6:]}'},
-        'rawPayload': {'message': doc_type},
+        'externalEventId': f'ext-{idempotency_key}',
+        'payloadFormat': 'x12',
+        'rawContent': raw_content,
+        'rawPayload': {'senderId': 'SENDER', 'receiverId': 'RECEIVER', 'records': 1},
+    }
+
+
+def _system_event(
+    *,
+    idempotency_key: str,
+    system: str,
+    stage: str,
+    event_type: str,
+    status: str,
+    input_data=None,
+    output_data=None,
+    errors: list | None = None,
+    attempt_no: int = 1,
+    is_final: bool = False,
+):
+    return {
+        'idempotencyKey': idempotency_key,
+        'system': system,
+        'stage': stage,
+        'eventType': event_type,
+        'status': status,
+        'occurredAt': '2026-06-08T10:05:00Z',
+        'message': f'{system} {stage} {status}',
+        'inputFormat': 'json' if input_data is not None else None,
+        'inputData': input_data,
+        'outputFormat': 'json' if output_data is not None else None,
+        'outputData': output_data,
+        'errors': errors or [],
+        'durationMs': 120,
+        'traceId': f'trace-{system}-{attempt_no}',
+        'attemptNo': attempt_no,
+        'isFinal': is_final,
+        'metadata': {'service': f'{system}-integration-service'},
     }
 
 
 def _oauth_token(client, client_id: str, client_secret: str) -> str:
-    res = client.post(
+    response = client.post(
         '/v1/oauth/token',
         data={
             'grant_type': 'client_credentials',
@@ -46,91 +76,236 @@ def _oauth_token(client, client_id: str, client_secret: str) -> str:
             'client_secret': client_secret,
         },
     )
-    assert res.status_code == 200
-    return res.json()['data']['access_token']
+    assert response.status_code == 200
+    return response.json()['data']['access_token']
 
 
-def test_integration_api_key_required(client):
-    res = client.post('/v1/integrations/events', json=_event(idempotency_key='k-1-abcdefg', doc_type='850'))
-    assert res.status_code == 401
-
-
-def test_integration_api_key_invalid(client):
-    res = client.post(
-        '/v1/integrations/events',
-        headers={'x-api-key': 'wrong-key'},
-        json=_event(idempotency_key='k-2-abcdefg', doc_type='850'),
+def test_transaction_api_key_required(client):
+    response = client.post(
+        '/v1/integrations/transactions',
+        json=_transaction_push(idempotency_key='txn-no-key-abcdefg'),
     )
-    assert res.status_code == 401
+    assert response.status_code == 401
 
 
-def test_integration_idempotency_and_related_856_850(client):
-    _auth_user(client)
+def test_transaction_push_persists_original_data_and_is_idempotent(client):
     headers = {'x-api-key': 'dev-integration-key'}
-    e850 = _event(idempotency_key='k-850-abcdefg', doc_type='850', refs={'poNo': 'PO-1001'})
-    create_850 = client.post('/v1/integrations/events', headers=headers, json=e850)
-    assert create_850.status_code == 200
-    id850 = create_850.json()['data']['transactionId']
+    raw = 'ISA*00*...~GS*PO*SENDER*RECEIVER*20260608*1200*1*X*004010~'
+    payload = _transaction_push(
+        idempotency_key='txn-push-abcdefg',
+        raw_content=raw,
+        refs={'poNo': 'PO-2001'},
+    )
 
-    e856 = _event(idempotency_key='k-856-abcdefg', doc_type='856', refs={'poNo': 'PO-1001'})
-    create_856 = client.post('/v1/integrations/events', headers=headers, json=e856)
-    assert create_856.status_code == 200
-    body_856 = create_856.json()['data']
-    assert body_856['linking']['linked'] is True
-    assert id850 in body_856['linking']['relatedTransactionIds']
-    id856 = body_856['transactionId']
+    response = client.post('/v1/integrations/transactions', headers=headers, json=payload)
+    replay = client.post('/v1/integrations/transactions', headers=headers, json=payload)
 
-    idem = client.post('/v1/integrations/events', headers=headers, json=e856)
-    assert idem.status_code == 200
-    assert idem.json()['data']['transactionId'] == id856
+    assert response.status_code == 200
+    assert response.json()['data']['idempotent'] is False
+    transaction_id = response.json()['data']['transactionId']
+    assert replay.json()['data']['transactionId'] == transaction_id
+    assert replay.json()['data']['idempotent'] is True
 
-    related = client.get(f'/v1/transactions/{id856}/related')
-    assert related.status_code == 200
-    assert related.json()['success'] is True
-    assert any(x['transactionId'] == id850 and x['relationType'] == 'response_to' for x in related.json()['data']['upstream'])
+    db = SessionLocal()
+    try:
+        transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+        assert transaction is not None
+        assert transaction.raw == raw
+        assert transaction.payload_format == 'x12'
+        assert transaction.raw_payload['senderId'] == 'SENDER'
+        assert transaction.business_refs['poNo'] == 'PO-2001'
+    finally:
+        db.close()
 
 
-def test_linking_945_940_and_214_204(client):
-    _auth_user(client)
+def test_transaction_external_event_dedupe(client):
     headers = {'x-api-key': 'dev-integration-key'}
-    client.post('/v1/integrations/events', headers=headers, json=_event(idempotency_key='k-940-abcdefg', doc_type='940', refs={'warehouseOrderNo': 'WO-1'}))
-    r945 = client.post('/v1/integrations/events', headers=headers, json=_event(idempotency_key='k-945-abcdefg', doc_type='945', refs={'warehouseOrderNo': 'WO-1'}))
-    assert r945.status_code == 200
-    assert r945.json()['data']['linking']['linked'] is True
+    first = _transaction_push(idempotency_key='txn-ext-a-abcdefg')
+    second = _transaction_push(idempotency_key='txn-ext-b-abcdefg')
+    second['externalEventId'] = first['externalEventId']
 
-    client.post('/v1/integrations/events', headers=headers, json=_event(idempotency_key='k-204-abcdefg', doc_type='204', refs={'loadNo': 'LOAD-1'}))
-    r214 = client.post('/v1/integrations/events', headers=headers, json=_event(idempotency_key='k-214-abcdefg', doc_type='214', refs={'loadNo': 'LOAD-1'}))
-    assert r214.status_code == 200
-    assert r214.json()['data']['linking']['linked'] is True
+    created = client.post('/v1/integrations/transactions', headers=headers, json=first)
+    duplicate = client.post('/v1/integrations/transactions', headers=headers, json=second)
+
+    assert duplicate.json()['data']['transactionId'] == created.json()['data']['transactionId']
+    assert duplicate.json()['data']['idempotent'] is True
 
 
-def test_batch_partial_success(client):
+def test_inbound_system_lifecycle_preserves_each_system_input_and_output(client):
     headers = {'x-api-key': 'dev-integration-key'}
-    payload = [
-        _event(idempotency_key='k-batch-ok-abcdefg', doc_type='850'),
-        {'docType': '850'},  # invalid
+    created = client.post(
+        '/v1/integrations/transactions',
+        headers=headers,
+        json=_transaction_push(idempotency_key='txn-inbound-life-abcdefg', refs={'poNo': 'PO-LIFE-1'}),
+    )
+    transaction_id = created.json()['data']['transactionId']
+
+    events = [
+        _system_event(
+            idempotency_key='event-edi-transform-0001',
+            system='edi-gateway',
+            stage='x12_to_canonical_json',
+            event_type='transformation',
+            status='completed',
+            input_data={'rawReference': transaction_id},
+            output_data={'poNo': 'PO-LIFE-1', 'lines': [{'sku': 'SKU-1', 'qty': 2}]},
+        ),
+        _system_event(
+            idempotency_key='event-oms-create-0001',
+            system='oms',
+            stage='create_sales_order',
+            event_type='processing',
+            status='completed',
+            input_data={'poNo': 'PO-LIFE-1', 'lines': [{'sku': 'SKU-1', 'qty': 2}]},
+            output_data={'orderNo': 'SO-1001', 'status': 'CREATED'},
+        ),
+        _system_event(
+            idempotency_key='event-wms-create-0001',
+            system='wms',
+            stage='create_warehouse_order',
+            event_type='processing',
+            status='completed',
+            input_data={'orderNo': 'SO-1001'},
+            output_data={'warehouseOrderNo': 'WO-1001', 'status': 'ACCEPTED'},
+            is_final=True,
+        ),
     ]
-    res = client.post('/v1/integrations/events/batch', headers=headers, json=payload)
-    assert res.status_code == 200
-    data = res.json()['data']
-    assert data['total'] == 2
-    assert data['successCount'] == 1
+    for event in events:
+        response = client.post(
+            f'/v1/integrations/transactions/{transaction_id}/system-events',
+            headers=headers,
+            json=event,
+        )
+        assert response.status_code == 200
+
+    timeline = client.get(
+        f'/v1/integrations/transactions/{transaction_id}/timeline',
+        headers=headers,
+    )
+    data = timeline.json()['data']
+    assert data['transaction']['status'] == 'completed'
+    assert data['transaction']['rawContent'].startswith('ISA')
+    assert [event['system'] for event in data['events']] == ['edi-gateway', 'oms', 'wms']
+    assert data['events'][0]['output']['data']['poNo'] == 'PO-LIFE-1'
+    assert data['events'][1]['output']['data']['orderNo'] == 'SO-1001'
+    assert data['events'][2]['output']['data']['warehouseOrderNo'] == 'WO-1001'
 
 
-def test_integration_oauth_environment_isolation(client):
-    create = client.post(
+def test_system_event_failure_records_structured_error_and_retry(client):
+    headers = {'x-api-key': 'dev-integration-key'}
+    created = client.post(
+        '/v1/integrations/transactions',
+        headers=headers,
+        json=_transaction_push(
+            idempotency_key='txn-outbound-error-abcdefg',
+            direction='outbound',
+            doc_type='945',
+        ),
+    )
+    transaction_id = created.json()['data']['transactionId']
+    failed_event = _system_event(
+        idempotency_key='event-wms-failed-0001',
+        system='wms',
+        stage='load_shipment_confirmation',
+        event_type='validation',
+        status='failed',
+        input_data={'warehouseOrderNo': ''},
+        errors=[
+            {
+                'code': 'WMS_REQUIRED_FIELD',
+                'message': 'warehouseOrderNo is required',
+                'field': 'warehouseOrderNo',
+                'severity': 'error',
+                'retryable': True,
+                'details': {'source': 'WMS'},
+            }
+        ],
+    )
+    failed = client.post(
+        f'/v1/integrations/transactions/{transaction_id}/system-events',
+        headers=headers,
+        json=failed_event,
+    )
+    replay = client.post(
+        f'/v1/integrations/transactions/{transaction_id}/system-events',
+        headers=headers,
+        json=failed_event,
+    )
+
+    assert failed.json()['data']['transactionStatus'] == 'failed'
+    assert replay.json()['data']['idempotent'] is True
+
+    retry = _system_event(
+        idempotency_key='event-wms-retry-0002',
+        system='wms',
+        stage='load_shipment_confirmation',
+        event_type='validation',
+        status='completed',
+        input_data={'warehouseOrderNo': 'WO-2001'},
+        output_data={'accepted': True},
+        attempt_no=2,
+        is_final=True,
+    )
+    retried = client.post(
+        f'/v1/integrations/transactions/{transaction_id}/system-events',
+        headers=headers,
+        json=retry,
+    )
+    assert retried.json()['data']['transactionStatus'] == 'completed'
+
+    db = SessionLocal()
+    try:
+        transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+        system_events = (
+            db.query(TransactionSystemEvent)
+            .filter(TransactionSystemEvent.transaction_id == transaction_id)
+            .order_by(TransactionSystemEvent.attempt_no.asc())
+            .all()
+        )
+        assert transaction is not None
+        assert transaction.errors[0]['code'] == 'WMS_REQUIRED_FIELD'
+        assert transaction.errors[0]['retryable'] is True
+        assert len(system_events) == 2
+        assert system_events[1].attempt_no == 2
+    finally:
+        db.close()
+
+
+def test_system_events_query_and_not_found(client):
+    headers = {'x-api-key': 'dev-integration-key'}
+    missing = client.get('/v1/integrations/transactions/TRX-MISSING/system-events', headers=headers)
+    assert missing.json()['code'] == 'TRX_NOT_FOUND'
+
+    created = client.post(
+        '/v1/integrations/transactions',
+        headers=headers,
+        json=_transaction_push(idempotency_key=f'txn-events-{uuid4().hex[:12]}'),
+    )
+    transaction_id = created.json()['data']['transactionId']
+    response = client.get(
+        f'/v1/integrations/transactions/{transaction_id}/system-events',
+        headers=headers,
+    )
+    assert response.json()['data']['eventCount'] == 0
+
+
+def test_batch_and_legacy_routes_are_not_exposed(client):
+    headers = {'x-api-key': 'dev-integration-key'}
+    assert client.post('/v1/integrations/transactions/batch', headers=headers, json={'items': []}).status_code == 404
+    assert client.get('/v1/integrations/jobs/any-job', headers=headers).status_code == 404
+    assert client.post('/v1/integrations/events', headers=headers, json={}).status_code == 404
+
+
+def test_transaction_push_requires_api_key_even_if_oauth_has_scope(client):
+    created = client.post(
         '/v1/oauth/clients',
         headers={'x-admin-key': 'dev-oauth-admin-key'},
-        data={'name': 'sandbox-int', 'scopes': 'integrations:write integrations:read', 'environment': 'sandbox'},
+        data={'name': 'oauth-int', 'scopes': 'integrations:write integrations:read', 'environment': 'all'},
     )
-    assert create.status_code == 200
-    cid = create.json()['data']['client_id']
-    csecret = create.json()['data']['client_secret']
-    token = _oauth_token(client, cid, csecret)
-    headers = {'Authorization': f'Bearer {token}'}
-
-    ok_res = client.post('/v1/integrations/events', headers=headers, json=_event(idempotency_key='k-sbx-abcdefg', doc_type='850', env='sandbox'))
-    assert ok_res.status_code == 200
-
-    deny_res = client.post('/v1/integrations/events', headers=headers, json=_event(idempotency_key='k-prd-abcdefg', doc_type='850', env='production'))
-    assert deny_res.status_code == 403
+    token = _oauth_token(client, created.json()['data']['client_id'], created.json()['data']['client_secret'])
+    response = client.post(
+        '/v1/integrations/transactions',
+        headers={'Authorization': f'Bearer {token}'},
+        json=_transaction_push(idempotency_key='txn-oauth-deny-abcdefg'),
+    )
+    assert response.status_code == 401

@@ -165,7 +165,9 @@ class Transaction(Base):
     business_refs: Mapped[dict] = mapped_column(JSON, default=dict)
     control_refs: Mapped[dict] = mapped_column(JSON, default=dict)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    payload_format: Mapped[str] = mapped_column(String(20), default='text')
     raw: Mapped[str] = mapped_column(Text)
+    raw_payload: Mapped[dict] = mapped_column(JSON, default=dict)
     logs: Mapped[list] = mapped_column(JSON, default=list)
     errors: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     environment: Mapped[str] = mapped_column(String(20), index=True)
@@ -182,6 +184,33 @@ class TransactionLink(Base):
     match_rule: Mapped[str] = mapped_column(String(120))
     confidence: Mapped[int] = mapped_column(Integer, default=0)
     evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TransactionSystemEvent(Base):
+    __tablename__ = 'transaction_system_events'
+    __table_args__ = (UniqueConstraint('transaction_id', 'idempotency_key', name='uq_transaction_system_event_idempotency'),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(ForeignKey('transactions.id', ondelete='CASCADE'), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(120), index=True)
+    system: Mapped[str] = mapped_column(String(80), index=True)
+    stage: Mapped[str] = mapped_column(String(120), index=True)
+    event_type: Mapped[str] = mapped_column(String(30), index=True)
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    external_status: Mapped[str] = mapped_column(String(80))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    message: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    input_format: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    input_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    output_format: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    output_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    errors: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    trace_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    attempt_no: Mapped[int] = mapped_column(Integer, default=1)
+    is_final: Mapped[bool] = mapped_column(Boolean, default=False)
+    event_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

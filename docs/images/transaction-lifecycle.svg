@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="720" viewBox="0 0 1400 720">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#34678f"/>
+    </marker>
+    <style>
+      .title { font: 700 30px Arial, sans-serif; fill: #173a5e; }
+      .label { font: 700 21px Arial, sans-serif; fill: #173a5e; }
+      .body { font: 17px Arial, sans-serif; fill: #263746; }
+      .small { font: 15px Arial, sans-serif; fill: #4b6477; }
+      .box { stroke: #34678f; stroke-width: 2; rx: 8; }
+      .arrow { stroke: #34678f; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1400" height="720" fill="#ffffff"/>
+  <text x="700" y="48" text-anchor="middle" class="title">One Transaction, Multiple System Events</text>
+
+  <rect x="70" y="105" width="1260" height="170" class="box" fill="#edf5fb"/>
+  <text x="105" y="145" class="label">Transaction</text>
+  <text x="105" y="180" class="body">transactionId: TRX-850-...</text>
+  <text x="105" y="212" class="body">Original payload: X12 or JSON</text>
+  <text x="105" y="244" class="body">Overall status + references + aggregated errors</text>
+  <text x="810" y="180" class="body">direction: inbound / outbound</text>
+  <text x="810" y="212" class="body">payloadFormat + rawContent</text>
+  <text x="810" y="244" class="body">created once at lifecycle start</text>
+
+  <path d="M700 275 L700 330" class="arrow"/>
+  <text x="720" y="312" class="small">1:N</text>
+
+  <rect x="50" y="350" width="290" height="250" class="box" fill="#f7fafc"/>
+  <text x="195" y="390" text-anchor="middle" class="label">EDI Gateway Event</text>
+  <text x="75" y="430" class="body">stage: x12_to_json</text>
+  <text x="75" y="462" class="body">input: original X12</text>
+  <text x="75" y="494" class="body">output: canonical JSON</text>
+  <text x="75" y="526" class="body">status / errors</text>
+  <text x="75" y="558" class="body">traceId / duration</text>
+
+  <rect x="380" y="350" width="290" height="250" class="box" fill="#f7fafc"/>
+  <text x="525" y="390" text-anchor="middle" class="label">OMS Event</text>
+  <text x="405" y="430" class="body">stage: create_order</text>
+  <text x="405" y="462" class="body">input: canonical JSON</text>
+  <text x="405" y="494" class="body">output: OMS JSON</text>
+  <text x="405" y="526" class="body">status / errors</text>
+  <text x="405" y="558" class="body">attemptNo / metadata</text>
+
+  <rect x="710" y="350" width="290" height="250" class="box" fill="#f7fafc"/>
+  <text x="855" y="390" text-anchor="middle" class="label">WMS Event</text>
+  <text x="735" y="430" class="body">stage: warehouse_order</text>
+  <text x="735" y="462" class="body">input: OMS JSON</text>
+  <text x="735" y="494" class="body">output: WMS JSON</text>
+  <text x="735" y="526" class="body">status / errors</text>
+  <text x="735" y="558" class="body">retryable / attemptNo</text>
+
+  <rect x="1040" y="350" width="310" height="250" class="box" fill="#f7fafc"/>
+  <text x="1195" y="390" text-anchor="middle" class="label">Delivery / ACK Event</text>
+  <text x="1065" y="430" class="body">stage: AS2 delivery / ACK</text>
+  <text x="1065" y="462" class="body">input: outbound X12</text>
+  <text x="1065" y="494" class="body">output: MDN / 997 / 999</text>
+  <text x="1065" y="526" class="body">status / errors</text>
+  <text x="1065" y="558" class="body">isFinal: true</text>
+
+  <path d="M340 475 L380 475" class="arrow"/>
+  <path d="M670 475 L710 475" class="arrow"/>
+  <path d="M1000 475 L1040 475" class="arrow"/>
+
+  <text x="700" y="665" text-anchor="middle" class="small">Each system appends its own event under the same transactionId. Previous failures are preserved when a retry succeeds.</text>
+</svg>

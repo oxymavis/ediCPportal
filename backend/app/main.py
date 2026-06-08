@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.http import RateLimitMiddleware, RequestGuardMiddleware, SecurityHeadersMiddleware, TraceAndAuditMiddleware
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
-from app.routers import api_docs, auth, certificates, connection_testing, health, integrations, meta, notifications, oauth, partners, specifications, transactions
+from app.routers import api_docs, auth, certificates, connection_testing, health, integration_validation, integrations, meta, notifications, oauth, partners, specifications, transactions
 from app.seed import seed_if_empty
 
 
@@ -197,3 +197,4 @@ app.include_router(specifications.router)
 app.include_router(integrations.router)
 app.include_router(api_docs.router)
 app.include_router(connection_testing.router)
+app.include_router(integration_validation.router)

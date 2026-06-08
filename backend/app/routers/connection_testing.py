@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import ssl
 import time
-from base64 import b64decode
+from base64 import b64encode
 from datetime import datetime
 from urllib.parse import urlparse
 from uuid import uuid4
 from xml.etree import ElementTree
 
 import httpx
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
 
@@ -63,80 +61,84 @@ def _check_partner_for_test(db: Session, partner_id: str | None, expected_type: 
     return partner, None
 
 
-def _as2_steps(host: str, port: int, as2_id: str, payload: dict) -> list[tuple[str, callable]]:
-    def dns():
-        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
-        return {'resolved': len(infos) > 0, 'addresses': list({x[4][0] for x in infos})[:5]}
+def _primary_as2_profile(partner: Partner | None):
+    if not partner:
+        return None
+    for sub in partner.subsidiaries:
+        if sub.as2_profiles:
+            return sub.as2_profiles[0]
+    return None
 
-    def tls():
-        ctx = ssl.create_default_context()
-        with socket.create_connection((host, port), timeout=5) as sock:
-            with ctx.wrap_socket(sock, server_hostname=host) as ssock:
-                cert = ssock.getpeercert()
-                cipher = ssock.cipher()
-                return {'subject': cert.get('subject'), 'issuer': cert.get('issuer'), 'cipher': cipher[0] if cipher else None}
 
-    def as2_identifier():
-        return {'valid': bool(as2_id and len(as2_id) >= 3)}
+def _as2_authorization_header(target: dict[str, str | int | bool]) -> str:
+    configured = str(target.get('authorization') or '').strip()
+    if configured:
+        return configured if configured.lower().startswith('basic ') else f'Basic {configured}'
+    username = str(target.get('username') or '')
+    password = str(target.get('password') or '')
+    if username or password:
+        token = b64encode(f'{username}:{password}'.encode('utf-8')).decode('ascii')
+        return f'Basic {token}'
+    return ''
 
-    def signature_check():
-        data = payload.get('signedPayload')
-        signature_b64 = payload.get('signatureBase64')
-        cert_pem = payload.get('signerCertPem')
-        if not data or not signature_b64 or not cert_pem:
-            return {'valid': False, 'reason': 'signedPayload/signatureBase64/signerCertPem required'}
-        cert = x509.load_pem_x509_certificate(cert_pem.encode('utf-8'))
-        public_key = cert.public_key()
-        public_key.verify(
-            b64decode(signature_b64),
-            data.encode('utf-8'),
-            padding.PKCS1v15(),
-            hashes.SHA256(),
-        )
-        return {'valid': True, 'algorithm': 'RSA-SHA256'}
 
-    def encryption_check():
-        ciphertext_b64 = payload.get('encryptedBase64')
-        private_key_pem = payload.get('decryptPrivateKeyPem')
-        passphrase = payload.get('decryptPrivateKeyPassphrase')
-        if not ciphertext_b64 or not private_key_pem:
-            return {'valid': False, 'reason': 'encryptedBase64/decryptPrivateKeyPem required'}
-        private_key = serialization.load_pem_private_key(
-            private_key_pem.encode('utf-8'),
-            password=(passphrase.encode('utf-8') if passphrase else None),
-        )
-        plaintext = private_key.decrypt(
-            b64decode(ciphertext_b64),
-            padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-        )
-        return {'valid': len(plaintext) > 0, 'plaintextLength': len(plaintext)}
+def _build_as2_connectivity_request(payload: dict, partner: Partner | None) -> tuple[dict | None, str | None]:
+    profile = _primary_as2_profile(partner)
+    partner_name = str(payload.get('partnerName') or payload.get('webMethodsPartnerName') or (partner.name if partner else '')).strip()
+    as2_partner_id = str(payload.get('partnerAS2Id') or payload.get('as2Id') or (profile.as2_id if profile else '')).strip()
+    content_type = str(payload.get('contentType') or 'application/EDI-X12').strip()
+    stream = str(payload.get('stream') or payload.get('ediPayload') or payload.get('samplePayload') or '').strip()
 
-    def mdn_roundtrip():
-        mdn_url = payload.get('mdnUrl')
-        if not mdn_url:
-            return {'valid': False, 'reason': 'mdnUrl required'}
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.post(mdn_url, headers={'content-type': 'message/disposition-notification'}, content='Disposition: automatic-action/MDN-sent-automatically; processed')
-        return {'valid': 200 <= resp.status_code < 300, 'statusCode': resp.status_code}
+    if not partner_name:
+        return None, 'Missing required field: partnerName'
+    if not as2_partner_id:
+        return None, 'Missing required field: partnerAS2Id'
+    if not stream:
+        return None, 'Missing required field: stream'
 
-    def functional_ack():
-        ack_url = payload.get('ackUrl')
-        if not ack_url:
-            return {'valid': False, 'reason': 'ackUrl required'}
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.get(ack_url)
-        body = resp.text or ''
-        return {'valid': (200 <= resp.status_code < 300) and ('997' in body or 'ACK' in body.upper()), 'statusCode': resp.status_code}
+    return {
+        'Data': {
+            'partnerName': partner_name,
+            'data': {
+                'contentType': content_type,
+                'stream': stream,
+            },
+            'partnerAS2Info': {
+                'id': as2_partner_id,
+                'idTypeDesc': str(payload.get('idTypeDesc') or 'EDIINT AS2'),
+            },
+        }
+    }, None
 
-    return [
-        ('DNS Reachability', dns),
-        ('TLS Handshake', tls),
-        ('AS2 Identifier Validation', as2_identifier),
-        ('Signature Verification', signature_check),
-        ('Encryption/Decryption Check', encryption_check),
-        ('MDN Roundtrip', mdn_roundtrip),
-        ('Functional ACK Check', functional_ack),
-    ]
+
+def _parse_as2_connectivity_response(response: httpx.Response) -> dict[str, object]:
+    raw_body = response.text or ''
+    try:
+        parsed = response.json()
+        if isinstance(parsed, dict):
+            for key, value in list(parsed.items()):
+                if isinstance(value, str) and value.strip().startswith('%') and value.strip().endswith('%'):
+                    parsed[key] = ''
+            return parsed
+        return {'body': parsed, 'rawBody': raw_body}
+    except Exception:
+        parsed: dict[str, object] = {'rawBody': raw_body[:2000]}
+
+    for key in ('success', 'message', 'bizDocInternalID', 'UNIS_SendMDN_MessageID', 'PartnerMessageID'):
+        match = re.search(rf'"?{re.escape(key)}"?\s*:\s*(.*?)(?:,\s*$|$)', raw_body, flags=re.MULTILINE)
+        if not match:
+            continue
+        value = match.group(1).strip().rstrip(',')
+        value = value.strip().strip('"').strip("'")
+        if value.lower() == 'true':
+            parsed[key] = True
+        elif value.lower() == 'false':
+            parsed[key] = False
+        elif value.startswith('%') and value.endswith('%'):
+            parsed[key] = ''
+        else:
+            parsed[key] = value
+    return parsed
 
 
 @router.post('/as2/run')
@@ -147,51 +149,131 @@ def run_as2_test(payload: dict, _csrf: None = Depends(require_csrf), db: Session
     if partner_err:
         return partner_err
 
-    host = payload.get('host')
-    as2_id = payload.get('as2Id') or ''
-    if not host and partner:
-        first_profile = None
-        for sub in partner.subsidiaries:
-            if sub.as2_profiles:
-                first_profile = sub.as2_profiles[0]
-                break
-        if first_profile:
-            parsed = urlparse(first_profile.as2_url or '')
-            host = parsed.hostname
-            as2_id = as2_id or first_profile.as2_id
-            if not payload.get('port') and parsed.port:
-                payload['port'] = parsed.port
-    if not host:
-        return fail('Missing required field: host', 'CONN_VALIDATION')
-    port = int(payload.get('port') or 443)
+    webmethods_payload, validation_error = _build_as2_connectivity_request(payload, partner)
+    if validation_error:
+        return fail(validation_error, 'CONN_VALIDATION')
+
+    target = settings.as2_connectivity_target(env)
+    endpoint = str(payload.get('endpointUrl') or target.get('url') or '').strip()
+    parsed_endpoint = urlparse(endpoint)
+    if parsed_endpoint.scheme not in {'http', 'https'}:
+        return fail('AS2 Connectivity API endpoint must be http/https', 'CONN_VALIDATION')
+
+    authorization = _as2_authorization_header(target)
+    if not authorization:
+        return fail('Missing AS2 Connectivity Basic authorization configuration', 'CONN_AUTH_CONFIG')
+
     run_id = f'ctr-{uuid4().hex[:20]}'
     started = datetime.utcnow()
     run = ConnectionTestRun(id=run_id, partner_id=payload.get('partnerId'), test_type='as2', environment=env, status='processing', summary={}, started_at=started, trace_id=payload.get('traceId'))
     db.add(run)
     db.commit()
 
-    passed = 0
-    failed = 0
-    for idx, (name, fn) in enumerate(_as2_steps(host, port, as2_id, payload), start=1):
-        t0 = time.perf_counter()
-        try:
-            evidence = fn()
-            latency = int((time.perf_counter() - t0) * 1000)
-            status = 'passed' if evidence.get('valid', True) else 'failed'
-            detail = 'ok' if status == 'passed' else 'validation failed'
-        except Exception as exc:
-            latency = int((time.perf_counter() - t0) * 1000)
-            status = 'failed'
-            evidence = {'error': str(exc)}
-            detail = str(exc)
-        if status == 'passed':
-            passed += 1
-        else:
-            failed += 1
-        _store_step(db, run_id, idx, name, status, latency, detail, evidence)
+    assert webmethods_payload is not None
+    data = webmethods_payload['Data']
+    _store_step(
+        db,
+        run_id,
+        1,
+        'Prepare webMethods AS2 Request',
+        'passed',
+        0,
+        'request payload ready',
+        {
+            'endpoint': endpoint,
+            'partnerName': data['partnerName'],
+            'contentType': data['data']['contentType'],
+            'streamLength': len(data['data']['stream']),
+            'partnerAS2Info': data['partnerAS2Info'],
+        },
+    )
+
+    response_data: dict[str, object] = {}
+    call_status = 'failed'
+    call_detail = 'request failed'
+    t0 = time.perf_counter()
+    try:
+        with httpx.Client(timeout=float(target.get('timeout_seconds') or 30), verify=bool(target.get('verify_tls'))) as client:
+            response = client.post(
+                endpoint,
+                headers={
+                    'Content-Type': 'application/json',
+                    'Authorization': authorization,
+                },
+                json=webmethods_payload,
+            )
+        latency = int((time.perf_counter() - t0) * 1000)
+        response_data = _parse_as2_connectivity_response(response)
+        call_status = 'passed' if 200 <= response.status_code < 300 else 'failed'
+        call_detail = f'HTTP {response.status_code}'
+        _store_step(
+            db,
+            run_id,
+            2,
+            'Call webMethods AS2 Connectivity API',
+            call_status,
+            latency,
+            call_detail,
+            {
+                'statusCode': response.status_code,
+                'contentType': response.headers.get('content-type'),
+                'response': response_data,
+            },
+        )
+    except Exception as exc:
+        latency = int((time.perf_counter() - t0) * 1000)
+        _store_step(db, run_id, 2, 'Call webMethods AS2 Connectivity API', 'failed', latency, str(exc), {'error': str(exc)})
+
+    success = bool(response_data.get('success')) if response_data else False
+    raw_message = str(response_data.get('message') or '').strip()
+    message = raw_message
+    if not message and response_data.get('success') is False:
+        message = 'webMethods returned success=false without an error message'
+    mdn_success = success and 'AS2 communication successful' in message and 'MDN sent' in message
+    _store_step(
+        db,
+        run_id,
+        3,
+        'Verify AS2 Delivery and MDN',
+        'passed' if mdn_success else 'failed',
+        0,
+        message or ('ok' if mdn_success else 'AS2 communication failed or MDN not confirmed'),
+        {
+            'success': success,
+            'message': message,
+            'mdnConfirmed': mdn_success,
+        },
+    )
+
+    tracking = {
+        'bizDocInternalID': response_data.get('bizDocInternalID'),
+        'UNIS_SendMDN_MessageID': response_data.get('UNIS_SendMDN_MessageID'),
+        'PartnerMessageID': response_data.get('PartnerMessageID'),
+    }
+    tracking_ok = any(bool(v) for v in tracking.values())
+    _store_step(
+        db,
+        run_id,
+        4,
+        'Capture Message Tracking IDs',
+        'passed' if tracking_ok else 'failed',
+        0,
+        'tracking IDs captured' if tracking_ok else 'tracking IDs not returned',
+        tracking,
+    )
+
+    passed = (1 if call_status == 'passed' else 0) + (1 if mdn_success else 0) + (1 if tracking_ok else 0) + 1
+    failed = 4 - passed
 
     run.status = 'passed' if failed == 0 else ('partial' if passed > 0 else 'failed')
-    run.summary = {'passedSteps': passed, 'failedSteps': failed, 'totalSteps': 7}
+    run.summary = {
+        'passedSteps': passed,
+        'failedSteps': failed,
+        'totalSteps': 4,
+        'webMethodsSuccess': success,
+        'message': message,
+        **tracking,
+    }
     run.finished_at = datetime.utcnow()
     db.commit()
     return ok({'runId': run_id, 'status': run.status, 'summary': run.summary})

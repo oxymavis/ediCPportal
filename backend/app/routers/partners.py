@@ -33,6 +33,7 @@ ALLOWED_CHANNELS = {'AS2', 'SFTP', 'VAN', 'REST_API', 'WEBHOOK'}
 ALLOWED_AS2_QUALIFIERS = {f'{x:02d}' for x in range(1, 34)} | {'ZZ'}
 ALLOWED_PARTNER_TYPES = {'platform', 'retailer', 'van', '3pl', 'manufacturer'}
 ALLOWED_SERVICE_TIERS = {'enterprise', 'standard', 'basic'}
+MAX_LIFECYCLE_STEP = 4
 
 
 def _validate_api_config(payload: dict | None) -> tuple[bool, str | None]:
@@ -233,7 +234,7 @@ def create_partner(payload: dict, _csrf: None = Depends(require_csrf), db: Sessi
                 return fail(as2_err or 'Invalid AS2 profile', 'PARTNER_VALIDATION')
 
     current_step_id = int(payload.get('currentStepId') or 1)
-    current_step_id = max(1, min(5, current_step_id))
+    current_step_id = max(1, min(MAX_LIFECYCLE_STEP, current_step_id))
     onboarding_start_date = payload.get('onboardingStartDate') or datetime.utcnow().strftime('%Y-%m-%d')
     step_completion_dates = payload.get('stepCompletionDates') or {}
 
@@ -396,7 +397,7 @@ def update_partner_lifecycle(
         return fail('Partner not found', 'PARTNER_NOT_FOUND')
 
     if payload.get('currentStepId') is not None:
-        p.current_step_id = max(1, min(5, int(payload.get('currentStepId'))))
+        p.current_step_id = max(1, min(MAX_LIFECYCLE_STEP, int(payload.get('currentStepId'))))
     if payload.get('onboardingStartDate') is not None:
         p.onboarding_start_date = payload.get('onboardingStartDate')
     if payload.get('stepCompletionDates') is not None:
@@ -417,7 +418,7 @@ def advance_partner_lifecycle(
     if not p:
         return fail('Partner not found', 'PARTNER_NOT_FOUND')
     current = p.current_step_id or 1
-    if current < 5:
+    if current < MAX_LIFECYCLE_STEP:
         p.current_step_id = current + 1
     dates = p.step_completion_dates or {}
     dates[str(p.current_step_id)] = datetime.utcnow().strftime('%Y-%m-%d')

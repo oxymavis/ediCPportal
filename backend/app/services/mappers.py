@@ -1,9 +1,18 @@
 from __future__ import annotations
 from app.models import AS2Profile, Certificate, Notification, Partner, Subsidiary, TpSpecification, Transaction, TransactionLink, UnisSpecification
 
+PARTNER_LIFECYCLE_TOTAL_STEPS = 4
+
 
 def partner_to_api(p: Partner) -> dict:
-    progress = max(0, min(100, int((p.current_step_id or 1) / 5 * 100)))
+    current_step_id = max(1, min(PARTNER_LIFECYCLE_TOTAL_STEPS, p.current_step_id or 1))
+    if current_step_id >= PARTNER_LIFECYCLE_TOTAL_STEPS:
+        progress = 100
+    else:
+        progress = max(
+            0,
+            min(100, int(round(((current_step_id - 1) / (PARTNER_LIFECYCLE_TOTAL_STEPS - 1)) * 100))),
+        )
     overall_sync_status = p.external_sync_status or 'not_synced'
     return {
         'id': p.id,
@@ -24,7 +33,7 @@ def partner_to_api(p: Partner) -> dict:
         'apiConfig': p.api_config,
         'channelConfig': p.channel_config or {},
         'lifecycle': {
-            'currentStepId': p.current_step_id or 1,
+            'currentStepId': current_step_id,
             'onboardingStartDate': p.onboarding_start_date,
             'stepCompletionDates': p.step_completion_dates or {},
             'progressPercent': progress,

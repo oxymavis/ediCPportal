@@ -14,3 +14,4 @@ pytest==8.3.4
 httpx==0.28.1
 email-validator==2.2.0
 eval_type_backport==0.2.2
+pdfplumber==0.11.9

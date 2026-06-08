@@ -19,6 +19,7 @@ export default function DashboardLayout({ user }: { user: any }) {
     specifications: "Message Specifications",
     "api-docs": "API Documentation",
     "connection-testing": "Connection Testing",
+    "integration-validation": "Integration Validation",
     transactions: "Transactions",
     notifications: "Notifications",
   }

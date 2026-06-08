@@ -105,7 +105,7 @@ export default function OverviewTab({ onNavigate }: OverviewTabProps) {
       id: p.id,
       name: p.partner,
       protocol: p.channel,
-      status: p.currentStepId >= 5 ? "active" : "testing",
+      status: p.currentStepId >= 4 ? "active" : "testing",
       messages: transactions.filter((t) => t.partner === p.partner).length,
     }))
   }, [partnerStatus, transactions])
@@ -275,8 +275,8 @@ export default function OverviewTab({ onNavigate }: OverviewTabProps) {
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${p.integrationType === "api" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>
                       {p.integrationType.toUpperCase()} / {p.channel}
                     </span>
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${p.currentStepId >= 5 ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                      {p.currentStepId >= 5 ? "Live" : getStepLabel(p.currentStepId)}
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${p.currentStepId >= 4 ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                      {p.currentStepId >= 4 ? "Live" : getStepLabel(p.currentStepId)}
                     </span>
                   </div>
                   <div className="mt-1.5">

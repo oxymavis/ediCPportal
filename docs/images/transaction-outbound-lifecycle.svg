@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="780" viewBox="0 0 1400 780">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#34678f"/>
+    </marker>
+    <marker id="errorArrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#a43b3b"/>
+    </marker>
+    <style>
+      .title { font: 700 30px Arial, sans-serif; fill: #173a5e; }
+      .label { font: 700 19px Arial, sans-serif; fill: #173a5e; }
+      .body { font: 15px Arial, sans-serif; fill: #263746; }
+      .small { font: 14px Arial, sans-serif; fill: #4b6477; }
+      .error { font: 700 14px Arial, sans-serif; fill: #8b2f2f; }
+      .box { stroke: #34678f; stroke-width: 2; rx: 8; }
+      .arrow { stroke: #34678f; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .errorArrow { stroke: #a43b3b; stroke-width: 2; stroke-dasharray: 7 5; fill: none; marker-end: url(#errorArrow); }
+    </style>
+  </defs>
+  <rect width="1400" height="780" fill="#ffffff"/>
+  <text x="700" y="48" text-anchor="middle" class="title">Outbound Transaction Lifecycle</text>
+  <text x="700" y="76" text-anchor="middle" class="small">One transactionId is used from internal JSON creation through partner acknowledgement.</text>
+
+  <rect x="45" y="135" width="235" height="235" class="box" fill="#edf5fb"/>
+  <text x="162" y="172" text-anchor="middle" class="label">1. Create Transaction</text>
+  <text x="70" y="212" class="body">Caller: WMS or OMS</text>
+  <text x="70" y="242" class="body">POST /transactions</text>
+  <text x="70" y="272" class="body">rawContent: original JSON</text>
+  <text x="70" y="302" class="body">direction: outbound</text>
+  <text x="70" y="332" class="body">status: received</text>
+
+  <rect x="325" y="135" width="235" height="235" class="box" fill="#f7fafc"/>
+  <text x="442" y="172" text-anchor="middle" class="label">2. Internal Processing</text>
+  <text x="350" y="212" class="body">System: OMS / WMS</text>
+  <text x="350" y="242" class="body">eventType: processing</text>
+  <text x="350" y="272" class="body">input: source JSON</text>
+  <text x="350" y="302" class="body">output: enriched JSON</text>
+  <text x="350" y="332" class="body">status / errors / traceId</text>
+
+  <rect x="605" y="135" width="235" height="235" class="box" fill="#f7fafc"/>
+  <text x="722" y="172" text-anchor="middle" class="label">3. JSON to X12</text>
+  <text x="630" y="212" class="body">System: EDI Gateway</text>
+  <text x="630" y="242" class="body">eventType: transformation</text>
+  <text x="630" y="272" class="body">input: internal JSON</text>
+  <text x="630" y="302" class="body">output: X12 856 / 945</text>
+  <text x="630" y="332" class="body">mapping / validation errors</text>
+
+  <rect x="885" y="135" width="215" height="235" class="box" fill="#f7fafc"/>
+  <text x="992" y="172" text-anchor="middle" class="label">4. AS2 Delivery</text>
+  <text x="910" y="212" class="body">System: EDI Gateway</text>
+  <text x="910" y="242" class="body">eventType: delivery</text>
+  <text x="910" y="272" class="body">input: outbound X12</text>
+  <text x="910" y="302" class="body">output: AS2 response</text>
+  <text x="910" y="332" class="body">HTTP / AS2 errors</text>
+
+  <rect x="1145" y="135" width="215" height="235" class="box" fill="#eef8f1"/>
+  <text x="1252" y="172" text-anchor="middle" class="label">5. ACK / Complete</text>
+  <text x="1170" y="212" class="body">MDN / 997 / 999</text>
+  <text x="1170" y="242" class="body">eventType: acknowledgement</text>
+  <text x="1170" y="272" class="body">status: completed</text>
+  <text x="1170" y="302" class="body">isFinal: true</text>
+  <text x="1170" y="332" class="body">Transaction completed</text>
+
+  <path d="M280 252 L325 252" class="arrow"/>
+  <path d="M560 252 L605 252" class="arrow"/>
+  <path d="M840 252 L885 252" class="arrow"/>
+  <path d="M1100 252 L1145 252" class="arrow"/>
+
+  <rect x="170" y="500" width="1060" height="180" rx="8" fill="#fff5f5" stroke="#a43b3b" stroke-width="2"/>
+  <text x="700" y="535" text-anchor="middle" class="label">Failure and Retry</text>
+  <text x="215" y="575" class="body">Any step can report status=failed with structured errors:</text>
+  <text x="215" y="608" class="error">code + message + field + severity + retryable + details</text>
+  <text x="215" y="641" class="body">Retry the business step with a new idempotencyKey and attemptNo + 1. Keep the same transactionId.</text>
+  <text x="215" y="667" class="body">Previous failed events remain in the timeline; final ACK success sets isFinal=true and completes the transaction.</text>
+
+  <path d="M722 370 L722 495" class="errorArrow"/>
+  <path d="M992 370 L992 495" class="errorArrow"/>
+  <text x="738" y="435" class="error">mapping failure</text>
+  <text x="1008" y="435" class="error">delivery / ACK failure</text>
+
+  <text x="700" y="742" text-anchor="middle" class="small">Every box after creation is a POST /transactions/{transactionId}/system-events call.</text>
+</svg>

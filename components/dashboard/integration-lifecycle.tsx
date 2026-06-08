@@ -24,26 +24,24 @@ interface IntegrationLifecyclePipelineProps {
 
 const STEP_DEFINITIONS = [
   { id: 1, name: "Trading Partner Setup", shortName: "Partner", module: "partners" },
-  { id: 2, name: "Communication Setup", shortName: "Comms", module: "partners" },
-  { id: 3, name: "Connection Testing", shortName: "Connect", module: "connection-testing" },
-  { id: 4, name: "Integration Validation", shortName: "Validate", module: "connection-testing" },
-  { id: 5, name: "Go Live", shortName: "Live", module: "transactions" },
+  { id: 2, name: "Connection Testing", shortName: "Connect", module: "connection-testing" },
+  { id: 3, name: "Integration Validation", shortName: "Validate", module: "connection-testing" },
+  { id: 4, name: "Go Live", shortName: "Live", module: "transactions" },
 ]
+const TOTAL_LIFECYCLE_STEPS = STEP_DEFINITIONS.length
 
 const ACTION_LABELS_EDI: Record<number, { label: string; hint: string }> = {
-  1: { label: "Edit Partner Info", hint: "Complete partner profile, upload certificates, exchange specs" },
-  2: { label: "Configure Channel", hint: "Set up AS2/SFTP/VAN communication protocol" },
-  3: { label: "Test Connection", hint: "Send AS2 test message and verify MDN receipt" },
-  4: { label: "View Test Results", hint: "Validate document mapping with test transactions" },
-  5: { label: "Go Live", hint: "All tests passed, enable the live integration" },
+  1: { label: "Edit Partner Info", hint: "Complete partner profile and exchange specifications" },
+  2: { label: "Test Connection", hint: "Verify connectivity and exchange sample messages" },
+  3: { label: "View Test Results", hint: "Validate document mapping with test transactions" },
+  4: { label: "Go Live", hint: "All tests passed, enable the live integration" },
 }
 
 const ACTION_LABELS_API: Record<number, { label: string; hint: string }> = {
   1: { label: "Edit Partner Info", hint: "Complete partner profile and API credentials" },
-  2: { label: "Configure API", hint: "Generate API token, configure webhook endpoints" },
-  3: { label: "Test API", hint: "Send test API request and validate response" },
-  4: { label: "View Test Results", hint: "Validate message format with test payloads" },
-  5: { label: "Go Live", hint: "All tests passed, enable the live integration" },
+  2: { label: "Test API", hint: "Send test API request and validate response" },
+  3: { label: "View Test Results", hint: "Validate message format with test payloads" },
+  4: { label: "Go Live", hint: "All tests passed, enable the live integration" },
 }
 
 export function buildIntegrationSteps(
@@ -69,12 +67,12 @@ export function buildIntegrationSteps(
 }
 
 export function getProgressFromStep(currentStepId: number): number {
-  if (currentStepId > 5) return 100
-  return Math.round(((currentStepId - 1) / 5) * 100)
+  if (currentStepId >= TOTAL_LIFECYCLE_STEPS) return 100
+  return Math.max(0, Math.round(((currentStepId - 1) / (TOTAL_LIFECYCLE_STEPS - 1)) * 100))
 }
 
 export function getStepLabel(stepId: number): string {
-  if (stepId > 5) return "Live"
+  if (stepId > TOTAL_LIFECYCLE_STEPS) return "Live"
   return STEP_DEFINITIONS.find(s => s.id === stepId)?.shortName || `Step ${stepId}`
 }
 
@@ -262,7 +260,7 @@ function CompactPipeline({
       </div>
       <span className="text-[10px] font-medium text-muted-foreground w-7 text-right">{progress}%</span>
       <span className="text-xs text-muted-foreground hidden sm:inline">
-        Step {currentStepId > 5 ? 5 : currentStepId}/5
+        Step {currentStepId > TOTAL_LIFECYCLE_STEPS ? TOTAL_LIFECYCLE_STEPS : currentStepId}/{TOTAL_LIFECYCLE_STEPS}
       </span>
     </div>
   )

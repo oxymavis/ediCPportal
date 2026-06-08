@@ -5,7 +5,6 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiClient } from "@/lib/api-client"
-import { toast } from "sonner"
 
 interface AS2ProfileRow {
   id: string
@@ -52,18 +51,8 @@ interface StepRow {
   evidence?: Record<string, unknown>
 }
 
-function parseHostPort(urlText?: string): { host: string; port: number } {
-  if (!urlText) return { host: "", port: 443 }
-  try {
-    const url = new URL(urlText)
-    return {
-      host: url.hostname,
-      port: url.port ? Number(url.port) : url.protocol === "http:" ? 80 : 443,
-    }
-  } catch {
-    return { host: "", port: 443 }
-  }
-}
+const DEFAULT_AS2_STREAM =
+  "ISA*00*          *00*          *ZZ*UNIS           *ZZ*PARTNER        *260521*1200*U*00401*000000001*0*T*>~GS*PO*UNIS*PARTNER*20260521*1200*1*X*004010~ST*850*0001~SE*2*0001~GE*1*1~IEA*1*000000001~"
 
 export default function ConnectionTestingTab() {
   const [partners, setPartners] = useState<PartnerRow[]>([])
@@ -78,17 +67,10 @@ export default function ConnectionTestingTab() {
   const [authType, setAuthType] = useState<"oauth2" | "api-key" | "none">("oauth2")
   const [samplePayload, setSamplePayload] = useState('{"messageType":"850","orderNo":"PO-1001"}')
 
-  const [host, setHost] = useState("")
-  const [port, setPort] = useState("443")
-  const [as2Id, setAs2Id] = useState("")
-  const [ackUrl, setAckUrl] = useState("https://httpbin.org/anything/ACK-997")
-  const [mdnUrl, setMdnUrl] = useState("https://httpbin.org/status/200")
-
-  const [validatorFormat, setValidatorFormat] = useState<"json" | "xml" | "x12">("json")
-  const [validatorContent, setValidatorContent] = useState('{"demo":true}')
-  const [validatorResult, setValidatorResult] = useState("")
-  const [validatorLoading, setValidatorLoading] = useState(false)
-  const [documentTestLoading, setDocumentTestLoading] = useState(false)
+  const [as2PartnerName, setAs2PartnerName] = useState("")
+  const [as2PartnerId, setAs2PartnerId] = useState("")
+  const [as2ContentType, setAs2ContentType] = useState("application/EDI-X12")
+  const [as2Stream, setAs2Stream] = useState(DEFAULT_AS2_STREAM)
 
   useEffect(() => {
     Promise.all([apiClient.getPartners(), apiClient.getConnectionRuns()]).then(([p, r]) => {
@@ -122,10 +104,8 @@ export default function ConnectionTestingTab() {
     }
 
     const primary = selectedPartner.subsidiaries?.flatMap((s) => s.as2Profiles || [])[0]
-    const parsed = parseHostPort(primary?.as2Url)
-    setHost(parsed.host)
-    setPort(String(primary?.as2Port || parsed.port || 443))
-    setAs2Id(primary?.as2Id || `${selectedPartner.code}-AS2`)
+    setAs2PartnerName(selectedPartner.name)
+    setAs2PartnerId(primary?.as2Id || `${selectedPartner.code}-AS2`)
   }, [selectedPartner])
 
   const visibleRuns = useMemo(() => {
@@ -159,7 +139,7 @@ export default function ConnectionTestingTab() {
       }
       res = await apiClient.runApiConnectionTest({
         partnerId: selectedPartner.id,
-        environment: "default",
+        environment: "sandbox",
         endpoint,
         auth: authType,
         samplePayload: parsedPayload,
@@ -167,12 +147,11 @@ export default function ConnectionTestingTab() {
     } else {
       res = await apiClient.runAs2ConnectionTest({
         partnerId: selectedPartner.id,
-        environment: "default",
-        host,
-        port: Number(port) || 443,
-        as2Id,
-        ackUrl,
-        mdnUrl,
+        environment: "sandbox",
+        partnerName: as2PartnerName,
+        partnerAS2Id: as2PartnerId,
+        contentType: as2ContentType,
+        stream: as2Stream,
       })
     }
 
@@ -187,25 +166,6 @@ export default function ConnectionTestingTab() {
     if (runId) setSelectedRunId(runId)
   }
 
-  const runPayloadValidator = async () => {
-    setValidatorLoading(true)
-    setValidatorResult("")
-    try {
-      const res = await apiClient.validatePayload({ format: validatorFormat, content: validatorContent })
-      if (res.success && res.data) {
-        setValidatorResult(JSON.stringify(res.data, null, 2))
-      } else {
-        setValidatorResult(JSON.stringify({ success: false, error: res.error }, null, 2))
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Request failed"
-      setValidatorResult(JSON.stringify({ success: false, error: msg }, null, 2))
-      toast.error("Validate Payload 请求失败")
-    } finally {
-      setValidatorLoading(false)
-    }
-  }
-
   return (
     <div className="space-y-6">
       <div>
@@ -214,7 +174,7 @@ export default function ConnectionTestingTab() {
       </div>
 
       <Card className="p-4 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4">
           <select value={selectedPartnerId} onChange={(e) => setSelectedPartnerId(e.target.value)} className="px-3 py-2 rounded-md border border-input bg-background text-sm">
             <option value="">Select partner</option>
             {partners.map((p) => (
@@ -227,7 +187,7 @@ export default function ConnectionTestingTab() {
         {selectedPartner && (
           <div className={`rounded-md border p-3 text-sm ${selectedPartner.integrationType === "api" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-sky-50 border-sky-200 text-sky-800"}`}>
             Selected flow: <span className="font-semibold">{selectedPartner.integrationType.toUpperCase()}</span>
-            {selectedPartner.integrationType === "api" ? " (EDI AS2 steps hidden)" : " (API endpoint checks hidden)"}
+            {selectedPartner.integrationType === "api" ? " (EDI AS2 steps hidden)" : " (AS2 test will call webMethods AS2 Connectivity API)"}
           </div>
         )}
 
@@ -257,24 +217,24 @@ export default function ConnectionTestingTab() {
         {selectedPartner?.integrationType === "edi" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm text-muted-foreground">Host</label>
-              <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="as2.partner.com" />
+              <label className="text-sm text-muted-foreground">webMethods Partner Name</label>
+              <Input value={as2PartnerName} onChange={(e) => setAs2PartnerName(e.target.value)} placeholder="TrueCommerceSHA2" />
             </div>
             <div className="space-y-2">
-              <label className="text-sm text-muted-foreground">Port</label>
-              <Input value={port} onChange={(e) => setPort(e.target.value)} placeholder="443" />
+              <label className="text-sm text-muted-foreground">AS2 Partner ID</label>
+              <Input value={as2PartnerId} onChange={(e) => setAs2PartnerId(e.target.value)} placeholder="TrueCommerceSHA2" />
             </div>
             <div className="space-y-2">
-              <label className="text-sm text-muted-foreground">AS2 ID</label>
-              <Input value={as2Id} onChange={(e) => setAs2Id(e.target.value)} placeholder="PARTNER-AS2" />
+              <label className="text-sm text-muted-foreground">Content Type</label>
+              <Input value={as2ContentType} onChange={(e) => setAs2ContentType(e.target.value)} placeholder="application/EDI-X12" />
             </div>
             <div className="space-y-2">
-              <label className="text-sm text-muted-foreground">MDN URL</label>
-              <Input value={mdnUrl} onChange={(e) => setMdnUrl(e.target.value)} placeholder="https://..." />
+              <label className="text-sm text-muted-foreground">ID Type</label>
+              <Input value="EDIINT AS2" disabled className="bg-secondary/30" />
             </div>
             <div className="md:col-span-2 space-y-2">
-              <label className="text-sm text-muted-foreground">Functional ACK URL</label>
-              <Input value={ackUrl} onChange={(e) => setAckUrl(e.target.value)} placeholder="https://.../ACK-997" />
+              <label className="text-sm text-muted-foreground">EDI X12 Test Content</label>
+              <textarea value={as2Stream} onChange={(e) => setAs2Stream(e.target.value)} className="w-full min-h-32 rounded-md border border-input bg-background p-3 text-xs font-mono" />
             </div>
           </div>
         )}
@@ -325,54 +285,6 @@ export default function ConnectionTestingTab() {
           )}
         </Card>
       </div>
-
-      <Card className="p-4 space-y-3">
-        <h3 className="font-semibold text-foreground">Document Test & Payload Validator</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <select value={validatorFormat} onChange={(e) => setValidatorFormat(e.target.value as "json" | "xml" | "x12")} className="px-3 py-2 rounded-md border border-input bg-background text-sm">
-            <option value="json">JSON</option>
-            <option value="xml">XML</option>
-            <option value="x12">X12</option>
-          </select>
-          <Button onClick={runPayloadValidator} disabled={validatorLoading}>
-            {validatorLoading ? "Validating…" : "Validate Payload"}
-          </Button>
-          <Button
-            variant="outline"
-            className="bg-transparent"
-            disabled={documentTestLoading}
-            onClick={async () => {
-              if (!selectedPartner) {
-                toast.error("请先在上方选择伙伴 (Select partner)")
-                return
-              }
-              setDocumentTestLoading(true)
-              try {
-                const res = await apiClient.createDocumentTest({
-                  partnerId: selectedPartner.id,
-                  environment: "default",
-                  messageType: "850",
-                  payload: { test: true },
-                  errors: [],
-                })
-                if (res.success && res.data) {
-                  toast.success(`Document Test 已提交: ${(res.data as { id?: string }).id ?? "ok"}`)
-                } else {
-                  toast.error(res.error ?? "Submit failed")
-                }
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Submit failed")
-              } finally {
-                setDocumentTestLoading(false)
-              }
-            }}
-          >
-            {documentTestLoading ? "Submitting…" : "Submit Document Test"}
-          </Button>
-        </div>
-        <textarea value={validatorContent} onChange={(e) => setValidatorContent(e.target.value)} className="w-full min-h-24 rounded-md border border-input bg-background p-3 text-xs font-mono" />
-        {validatorResult && <pre className="text-xs bg-secondary/40 rounded p-3 overflow-auto">{validatorResult}</pre>}
-      </Card>
     </div>
   )
 }
