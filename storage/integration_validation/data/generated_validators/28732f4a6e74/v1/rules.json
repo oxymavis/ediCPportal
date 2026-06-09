@@ -1,0 +1,79 @@
+{
+  "specId": "28732f4a6e74",
+  "buildVersion": "v1",
+  "points": [
+    {
+      "id": "sample-spec-1",
+      "title": "BSN segment is required",
+      "source_line": "BSN segment is required",
+      "source_file": "sample-spec.md",
+      "category": "Required",
+      "rule_type": "segment_required",
+      "segment": "BSN",
+      "element": "",
+      "qualifier": "",
+      "expected": [],
+      "severity": "Error",
+      "compiled": true,
+      "description_zh": "BSN segment is required",
+      "description_en": "BSN segment is required",
+      "metadata": {}
+    },
+    {
+      "id": "sample-spec-2",
+      "title": "BSN03 must use CCYYMMDD format",
+      "source_line": "BSN03 must use CCYYMMDD format",
+      "source_file": "sample-spec.md",
+      "category": "Format",
+      "rule_type": "date_format",
+      "segment": "BSN",
+      "element": "BSN03",
+      "qualifier": "",
+      "expected": [
+        "CCYYMMDD"
+      ],
+      "severity": "Error",
+      "compiled": true,
+      "description_zh": "BSN03 must use CCYYMMDD format",
+      "description_en": "BSN03 must use CCYYMMDD format",
+      "metadata": {}
+    },
+    {
+      "id": "sample-spec-3",
+      "title": "DTM*011 is required",
+      "source_line": "DTM*011 required",
+      "source_file": "sample-spec.md",
+      "category": "Required",
+      "rule_type": "qualified_segment_required",
+      "segment": "DTM",
+      "element": "",
+      "qualifier": "011",
+      "expected": [],
+      "severity": "Error",
+      "compiled": true,
+      "description_zh": "DTM*011 required",
+      "description_en": "DTM*011 is required",
+      "metadata": {}
+    },
+    {
+      "id": "sample-spec-4",
+      "title": "LIN02 must be one of IN / VP",
+      "source_line": "LIN02 must be one of IN / VP",
+      "source_file": "sample-spec.md",
+      "category": "Value Constraint",
+      "rule_type": "element_one_of",
+      "segment": "LIN",
+      "element": "LIN02",
+      "qualifier": "",
+      "expected": [
+        "IN",
+        "VP"
+      ],
+      "severity": "Error",
+      "compiled": true,
+      "description_zh": "LIN02 must be one of IN / VP",
+      "description_en": "LIN02 must be one of IN / VP",
+      "metadata": {}
+    }
+  ]
+}

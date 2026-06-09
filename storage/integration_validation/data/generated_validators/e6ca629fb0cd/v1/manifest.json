@@ -1,0 +1,16 @@
+{
+  "specId": "e6ca629fb0cd",
+  "specName": "sample-spec.md",
+  "buildVersion": "v1",
+  "validatorType": "generated_spec",
+  "pluginKey": "",
+  "createdAt": "2026-04-29T08:04:19Z",
+  "sourceFiles": [
+    {
+      "fileName": "sample-spec.md",
+      "storedPath": "data/uploads/e6ca629fb0cd/sample-spec.md",
+      "sha256": "ffcd415d5118e18541d80b284eaed34be926e78b8ba3b0e6825368c29346a58b"
+    }
+  ],
+  "rulesHash": "de03fd477743bde7705992d5007e273464bae45d6a5c69b2f854ab1d6294418f"
+}
