@@ -15,42 +15,53 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('transactions', sa.Column('payload_format', sa.String(20), nullable=False, server_default='text'))
-    op.add_column('transactions', sa.Column('raw_payload', sa.JSON(), nullable=False, server_default='{}'))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tx_columns = {c['name'] for c in inspector.get_columns('transactions')}
 
-    op.create_table(
-        'transaction_system_events',
-        sa.Column('id', sa.String(64), primary_key=True),
-        sa.Column('transaction_id', sa.String(80), sa.ForeignKey('transactions.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('idempotency_key', sa.String(120), nullable=False),
-        sa.Column('system', sa.String(80), nullable=False),
-        sa.Column('stage', sa.String(120), nullable=False),
-        sa.Column('event_type', sa.String(30), nullable=False),
-        sa.Column('status', sa.String(20), nullable=False),
-        sa.Column('external_status', sa.String(80), nullable=False),
-        sa.Column('occurred_at', sa.DateTime(), nullable=False),
-        sa.Column('message', sa.String(1000), nullable=True),
-        sa.Column('input_format', sa.String(20), nullable=True),
-        sa.Column('input_data', sa.JSON(), nullable=True),
-        sa.Column('output_format', sa.String(20), nullable=True),
-        sa.Column('output_data', sa.JSON(), nullable=True),
-        sa.Column('errors', sa.JSON(), nullable=False),
-        sa.Column('duration_ms', sa.Integer(), nullable=True),
-        sa.Column('trace_id', sa.String(120), nullable=True),
-        sa.Column('attempt_no', sa.Integer(), nullable=False),
-        sa.Column('is_final', sa.Boolean(), nullable=False),
-        sa.Column('event_metadata', sa.JSON(), nullable=False),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.UniqueConstraint('transaction_id', 'idempotency_key', name='uq_transaction_system_event_idempotency'),
-    )
-    op.create_index('ix_transaction_system_events_transaction_id', 'transaction_system_events', ['transaction_id'])
-    op.create_index('ix_transaction_system_events_idempotency_key', 'transaction_system_events', ['idempotency_key'])
-    op.create_index('ix_transaction_system_events_system', 'transaction_system_events', ['system'])
-    op.create_index('ix_transaction_system_events_stage', 'transaction_system_events', ['stage'])
-    op.create_index('ix_transaction_system_events_event_type', 'transaction_system_events', ['event_type'])
-    op.create_index('ix_transaction_system_events_status', 'transaction_system_events', ['status'])
-    op.create_index('ix_transaction_system_events_occurred_at', 'transaction_system_events', ['occurred_at'])
-    op.create_index('ix_transaction_system_events_trace_id', 'transaction_system_events', ['trace_id'])
+    if 'payload_format' not in tx_columns:
+        op.add_column('transactions', sa.Column('payload_format', sa.String(20), nullable=False, server_default='text'))
+
+    # MySQL rejects DEFAULT on JSON columns; add as nullable, backfill, then enforce NOT NULL
+    if 'raw_payload' not in tx_columns:
+        op.add_column('transactions', sa.Column('raw_payload', sa.JSON(), nullable=True))
+        op.execute("UPDATE transactions SET raw_payload = '{}' WHERE raw_payload IS NULL")
+        op.alter_column('transactions', 'raw_payload', existing_type=sa.JSON(), nullable=False)
+
+    if 'transaction_system_events' not in inspector.get_table_names():
+        op.create_table(
+            'transaction_system_events',
+            sa.Column('id', sa.String(64), primary_key=True),
+            sa.Column('transaction_id', sa.String(80), sa.ForeignKey('transactions.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('idempotency_key', sa.String(120), nullable=False),
+            sa.Column('system', sa.String(80), nullable=False),
+            sa.Column('stage', sa.String(120), nullable=False),
+            sa.Column('event_type', sa.String(30), nullable=False),
+            sa.Column('status', sa.String(20), nullable=False),
+            sa.Column('external_status', sa.String(80), nullable=False),
+            sa.Column('occurred_at', sa.DateTime(), nullable=False),
+            sa.Column('message', sa.String(1000), nullable=True),
+            sa.Column('input_format', sa.String(20), nullable=True),
+            sa.Column('input_data', sa.JSON(), nullable=True),
+            sa.Column('output_format', sa.String(20), nullable=True),
+            sa.Column('output_data', sa.JSON(), nullable=True),
+            sa.Column('errors', sa.JSON(), nullable=False),
+            sa.Column('duration_ms', sa.Integer(), nullable=True),
+            sa.Column('trace_id', sa.String(120), nullable=True),
+            sa.Column('attempt_no', sa.Integer(), nullable=False),
+            sa.Column('is_final', sa.Boolean(), nullable=False),
+            sa.Column('event_metadata', sa.JSON(), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.UniqueConstraint('transaction_id', 'idempotency_key', name='uq_transaction_system_event_idempotency'),
+        )
+        op.create_index('ix_transaction_system_events_transaction_id', 'transaction_system_events', ['transaction_id'])
+        op.create_index('ix_transaction_system_events_idempotency_key', 'transaction_system_events', ['idempotency_key'])
+        op.create_index('ix_transaction_system_events_system', 'transaction_system_events', ['system'])
+        op.create_index('ix_transaction_system_events_stage', 'transaction_system_events', ['stage'])
+        op.create_index('ix_transaction_system_events_event_type', 'transaction_system_events', ['event_type'])
+        op.create_index('ix_transaction_system_events_status', 'transaction_system_events', ['status'])
+        op.create_index('ix_transaction_system_events_occurred_at', 'transaction_system_events', ['occurred_at'])
+        op.create_index('ix_transaction_system_events_trace_id', 'transaction_system_events', ['trace_id'])
 
 
 def downgrade() -> None:
